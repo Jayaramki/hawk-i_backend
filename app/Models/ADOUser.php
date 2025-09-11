@@ -11,9 +11,14 @@ class ADOUser extends Model
     use HasFactory;
 
     protected $table = 'ado_users';
+    
+    // Tell Laravel that the ID is not auto-incrementing (we use Azure DevOps descriptor as primary key)
+    public $incrementing = false;
+    
+    // Tell Laravel that the primary key is a string
+    protected $keyType = 'string';
 
     protected $fillable = [
-        'descriptor',
         'display_name',
         'mail_address',
         'origin',
@@ -37,7 +42,7 @@ class ADOUser extends Model
      */
     public function assignedWorkItems(): HasMany
     {
-        return $this->hasMany(ADOWorkItem::class, 'assigned_to', 'descriptor');
+        return $this->hasMany(ADOWorkItem::class, 'assigned_to', 'id');
     }
 
     /**
@@ -45,7 +50,7 @@ class ADOUser extends Model
      */
     public function createdWorkItems(): HasMany
     {
-        return $this->hasMany(ADOWorkItem::class, 'created_by', 'descriptor');
+        return $this->hasMany(ADOWorkItem::class, 'created_by', 'id');
     }
 
     /**
@@ -53,7 +58,7 @@ class ADOUser extends Model
      */
     public function modifiedWorkItems(): HasMany
     {
-        return $this->hasMany(ADOWorkItem::class, 'modified_by', 'descriptor');
+        return $this->hasMany(ADOWorkItem::class, 'modified_by', 'id');
     }
 
     /**

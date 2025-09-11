@@ -199,7 +199,7 @@ class ADOSyncService
             foreach ($users as $userData) {
                 try {
                     $user = ADOUser::updateOrCreate(
-                        ['descriptor' => $userData['descriptor']],
+                        ['id' => $userData['descriptor']],
                         [
                             'display_name' => $userData['displayName'],
                             'mail_address' => $userData['mailAddress'] ?? null,
@@ -269,15 +269,37 @@ class ADOSyncService
         try {
             Log::info('🔄 Starting ADO sync for Teams');
             
+            // Get active project IDs for filtering
+            $activeProjectIds = ADOProject::active()->pluck('id')->toArray();
+            Log::info('📋 Active projects for team sync:', [
+                'count' => count($activeProjectIds),
+                'project_ids' => $activeProjectIds
+            ]);
+            
             // Get all teams from Azure DevOps Core API
             $teams = $this->adoService->getTeams();
             $totalInserted = 0;
             $totalUpdated = 0;
+            $totalSkipped = 0;
             
             foreach ($teams as $teamData) {
                 try {
                     // Extract project ID from URL if available
                     $projectId = $this->extractProjectIdFromUrl($teamData['url'] ?? '');
+                    
+                    // Skip teams from inactive projects
+                    if ($projectId && !in_array($projectId, $activeProjectIds)) {
+                        $totalSkipped++;
+                        Log::debug("⏭️ Skipping team '{$teamData['name']}' from inactive project: {$projectId}");
+                        continue;
+                    }
+                    
+                    // Skip teams without a valid project ID (orphaned teams)
+                    if (!$projectId) {
+                        $totalSkipped++;
+                        Log::debug("⏭️ Skipping team '{$teamData['name']}' without valid project ID");
+                        continue;
+                    }
                     
                     $team = ADOTeam::updateOrCreate(
                         ['id' => $teamData['id']],
@@ -304,9 +326,9 @@ class ADOSyncService
                 }
             }
             
-            Log::info("✅ Teams sync completed: Inserted: {$totalInserted}, Updated: {$totalUpdated}");
+            Log::info("✅ Teams sync completed: Inserted: {$totalInserted}, Updated: {$totalUpdated}, Skipped: {$totalSkipped}");
             
-            // Update sync history for teams (global sync, no specific project ID) 
+            // Update sync history for teams (global sync, no specific project ID)
             SyncHistory::updateSyncHistory(
                 SyncHistory::TABLE_TEAMS,
                 null, // Teams sync is global across projects
@@ -318,6 +340,7 @@ class ADOSyncService
             return [
                 'inserted' => $totalInserted,
                 'updated' => $totalUpdated,
+                'skipped' => $totalSkipped,
             ];
             
         } catch (Exception $e) {
@@ -436,9 +459,8 @@ class ADOSyncService
                                 }
                                 
                                 $iteration = ADOIteration::updateOrCreate(
-                                    ['id' => $iterationData['id']],
+                                    ['id' => $iterationData['identifier']],
                                     [
-                                        'identifier' => $iterationData['identifier'],
                                         'name' => $iterationData['name'],
                                         'path' => $iterationData['path'],
                                         'project_id' => $project->id,
@@ -542,7 +564,7 @@ class ADOSyncService
                         try {
                             Log::info("Fetching iterations for team: {$team->name}");
                             
-                            $teamIterations = $this->adoService->getTeamIterations($project->id, $team->id);
+                            $teamIterations = $this->adoService->getTeamIterationsFromAPI($project->id, $team->id);
                             
                             // Transform team iterations to our format
                             foreach ($teamIterations as $iteration) {
@@ -584,12 +606,14 @@ class ADOSyncService
                                         continue;
                                     }
                                     
+                                    // Generate composite ID for team iteration
+                                    $compositeId = $teamIterationData['team_id'] . '-' . $teamIterationData['iteration_identifier'];
+                                    
                                     $teamIteration = ADOTeamIteration::updateOrCreate(
+                                        ['id' => $compositeId],
                                         [
                                             'iteration_identifier' => $teamIterationData['iteration_identifier'],
                                             'team_id' => $teamIterationData['team_id'],
-                                        ],
-                                        [
                                             'team_name' => $teamIterationData['team_name'],
                                             'timeframe' => $teamIterationData['timeframe'],
                                             'assigned' => $teamIterationData['assigned'],
@@ -705,23 +729,56 @@ class ADOSyncService
             foreach ($projects as $project) {
                 $projectCount++;
                 try {
-                    Log::info("🔄 Processing project {$projectCount}/{$projects->count()}: {$project->name} (ID: {$project->id})");
+                    $progressMsg = "🔄 Processing project {$projectCount}/{$projects->count()}: {$project->name}";
+                    Log::info($progressMsg);
+                    echo $progressMsg . "\n";
                     
                     // Get last sync time for this specific project if not provided
                     $projectLastSyncTime = $lastSyncTime;
                     if (!$projectLastSyncTime) {
                         $projectLastSyncTime = $this->getLastSyncTime(SyncHistory::TABLE_WORK_ITEMS, $project->id);
                         if ($projectLastSyncTime) {
-                            Log::info("📅 Using last sync time from database for project {$project->name}: {$projectLastSyncTime->format('Y-m-d H:i:s')}");
+                            $syncTimeMsg = "📅 Using last sync time: {$projectLastSyncTime->format('Y-m-d H:i:s')}";
+                            Log::info($syncTimeMsg);
+                            echo $syncTimeMsg . "\n";
                         }
                     }
                     
+                                        // Get active teams and iterations for this project for filtering
+                    $activeTeams = ADOTeam::where('project_id', $project->id)->active()->pluck('id')->toArray();
+                    $activeIterations = ADOIteration::where('project_id', $project->id)->active()->pluck('id')->toArray();
+                    $activeTeamIterations = ADOTeamIteration::where('project_id', $project->id)->active()->pluck('id')->toArray();
+                    
+                    Log::info("📊 Active entities for project {$project->name}:", [
+                        'active_teams' => count($activeTeams),
+                        'active_iterations' => count($activeIterations),
+                        'active_team_iterations' => count($activeTeamIterations)
+                    ]);
+                    
                     // Get work items and process them directly into database (handled in AzureDevOpsService)
-                    $workItems = $this->adoService->getWorkItems($project->name, $projectLastSyncTime, null, 1000, $firstBatchOnly);
-                     Log::info("✅ Project {$project->name} work items processed directly into database");
+                    $workItems = $this->adoService->getWorkItems(
+                        $project->name, 
+                        $projectLastSyncTime, 
+                        null, 
+                        1000, 
+                        $firstBatchOnly,
+                        $activeTeams,
+                        $activeIterations,
+                        $activeTeamIterations
+                    );
+                    
+                    // Count work items processed
+                    $workItemCount = count($workItems);
+                    $totalInserted += $workItemCount; // This is a rough count - actual DB counts are in AzureDevOpsService
+                    
+                    $completeMsg = "✅ Project {$project->name} work items processed: {$workItemCount} items";
+                    Log::info($completeMsg);
+                    echo $completeMsg . "\n";
                     
                 } catch (Exception $e) {
-                    Log::error("Error syncing work items for project {$project->id}: " . $e->getMessage());
+                    $errorMsg = "❌ Error syncing work items for project {$project->id}: " . $e->getMessage();
+                    Log::error($errorMsg);
+                    echo $errorMsg . "\n";
                 }
             }
             

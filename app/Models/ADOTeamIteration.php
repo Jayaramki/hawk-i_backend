@@ -11,6 +11,12 @@ class ADOTeamIteration extends Model
     use HasFactory;
 
     protected $table = 'ado_team_iterations';
+    
+    // Tell Laravel that the ID is not auto-incrementing (we use composite ID)
+    public $incrementing = false;
+    
+    // Tell Laravel that the primary key is a string
+    protected $keyType = 'string';
 
     protected $fillable = [
         'iteration_identifier',
@@ -23,13 +29,14 @@ class ADOTeamIteration extends Model
         'start_date',
         'end_date',
         'project_id',
-
+        'is_active',
     ];
 
     protected $casts = [
         'assigned' => 'boolean',
         'start_date' => 'date',
         'end_date' => 'date',
+        'is_active' => 'boolean',
     ];
 
     /**
@@ -45,7 +52,7 @@ class ADOTeamIteration extends Model
      */
     public function iteration(): BelongsTo
     {
-        return $this->belongsTo(ADOIteration::class, 'iteration_identifier', 'identifier');
+        return $this->belongsTo(ADOIteration::class, 'iteration_identifier', 'id');
     }
 
     /**
@@ -54,5 +61,13 @@ class ADOTeamIteration extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(ADOProject::class, 'project_id', 'id');
+    }
+
+    /**
+     * Scope to filter active team iterations only
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
     }
 }

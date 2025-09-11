@@ -41,4 +41,10 @@ return [
         'graph_api_version' => env('AZURE_DEVOPS_GRAPH_API_VERSION', '7.0-preview.1'),
     ],
 
+    'bamboohr' => [
+        'api_key' => env('BAMBOOHR_API_KEY'),
+        'subdomain' => env('BAMBOOHR_SUBDOMAIN'),
+        'base_url' => env('BAMBOOHR_BASE_URL', 'https://api.bamboohr.com/api/gateway.php'),
+    ],
+
 ];

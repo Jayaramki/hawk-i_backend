@@ -322,17 +322,77 @@ class AzureDevOpsService
     }
 
     /**
-     * Get team iterations
+     * Get team iterations from Azure DevOps API
+     */
+    public function getTeamIterationsFromAPI(string $projectId, string $teamId): array
+    {
+        $cacheKey = "ado_team_iterations_api_{$projectId}_{$teamId}";
+        
+        return Cache::remember($cacheKey, 1800, function () use ($projectId, $teamId) {
+            // Get team name from database
+            $team = \App\Models\ADOTeam::find($teamId);
+            if (!$team) {
+                Log::error("Team not found in database: {$teamId}");
+                return [];
+            }
+            
+            // Use the correct Azure DevOps API endpoint with team name
+            $endpoint = "/{$projectId}/{$team->name}/_apis/work/teamsettings/iterations?api-version=7.0";
+            
+            Log::info("Fetching team iterations from API for project: {$projectId}, team: {$team->name} (ID: {$teamId})");
+            Log::info("Making GET request to URL: {$this->baseUrl}{$endpoint}");
+            
+            $response = Http::withHeaders($this->headers)
+                ->timeout(30)
+                ->get($this->baseUrl . $endpoint);
+            
+            if (!$response->successful()) {
+                Log::error("Failed to get team iterations from API", [
+                    'project_id' => $projectId,
+                    'team_id' => $teamId,
+                    'team_name' => $team->name,
+                    'status' => $response->status(),
+                    'response' => $response->body()
+                ]);
+                return [];
+            }
+            
+            $data = $response->json();
+            $iterations = $data['value'] ?? [];
+            
+            Log::info("Found " . count($iterations) . " team iterations from API for project: {$projectId}, team: {$team->name}");
+            
+            return $iterations;
+        });
+    }
+
+    /**
+     * Get team iterations from database
      */
     public function getTeamIterations(string $projectId, string $teamId): array
     {
-        $cacheKey = "ado_team_iterations_{$projectId}_{$teamId}";
+        $cacheKey = "ado_team_iterations_db_{$projectId}_{$teamId}";
         
         return Cache::remember($cacheKey, 1800, function () use ($projectId, $teamId) {
-            $endpoint = "/{$projectId}/{$teamId}/_apis/work/teamsettings/iterations?api-version=7.0";
-            $response = $this->makeRequest($endpoint);
-            
-            $teamIterations = $response['value'] ?? [];
+            // Query the ado_team_iterations table using team_id
+            $teamIterations = \App\Models\ADOTeamIteration::where('team_id', $teamId)
+                ->where('project_id', $projectId)
+                ->where('assigned', true) // Only get assigned iterations
+                ->orderBy('start_date', 'asc')
+                ->get()
+                ->map(function ($iteration) {
+                    return [
+                        'id' => $iteration->iteration_identifier,
+                        'name' => $iteration->iteration_name,
+                        'path' => $iteration->iteration_path,
+                        'startDate' => $iteration->start_date?->toDateString(),
+                        'finishDate' => $iteration->end_date?->toDateString(),
+                        'timeFrame' => $iteration->timeframe,
+                        'assigned' => $iteration->assigned,
+                        'teamName' => $iteration->team_name
+                    ];
+                })
+                ->toArray();
             
             return $teamIterations;
         });
@@ -341,7 +401,7 @@ class AzureDevOpsService
     /**
      * Get work items with WIQL query and incremental sync support
      */
-    public function getWorkItems(string $projectName, ?\DateTime $lastSyncTime = null, string $wiql = null, int $top = 1000, bool $firstBatchOnly = false): array
+    public function getWorkItems(string $projectName, ?\DateTime $lastSyncTime = null, string $wiql = null, int $top = 1000, bool $firstBatchOnly = false, array $activeTeams = [], array $activeIterations = [], array $activeTeamIterations = []): array
     {
         // Get project from database using project name
         $project = \App\Models\ADOProject::where('name', $projectName)->first();
@@ -351,13 +411,56 @@ class AzureDevOpsService
         }
         
         if (!$wiql) {
-            // Build WIQL query similar to Python script - escape single quotes like Python
+            // Build WIQL query with active filtering - escape single quotes like Python
             $escapedProjectName = str_replace("'", "''", $projectName);
             $queryParts = [
                 "SELECT [System.Id]",
                 "FROM WorkItems",
                 "WHERE [System.TeamProject] = '{$escapedProjectName}'"
             ];
+            
+            // Collect all active iteration paths from both iterations and team iterations
+            $allActiveIterationPaths = [];
+            
+            // Add active iterations filter if we have active iterations
+            if (!empty($activeIterations)) {
+                Log::info("🎯 Adding iteration filter to WIQL query", ['active_iterations_count' => count($activeIterations)]);
+                
+                // Get iteration paths for active iterations
+                $activeIterationPaths = \App\Models\ADOIteration::whereIn('id', $activeIterations)
+                    ->pluck('path')
+                    ->filter() // Remove null values
+                    ->toArray();
+                
+                $allActiveIterationPaths = array_merge($allActiveIterationPaths, $activeIterationPaths);
+                Log::info("🎯 Added iteration paths from active iterations", ['paths' => $activeIterationPaths]);
+            }
+            
+            // Add active team iterations filter for more precise team-based filtering
+            if (!empty($activeTeamIterations)) {
+                Log::info("🎯 Adding team iteration paths filter to WIQL query", ['active_team_iterations_count' => count($activeTeamIterations)]);
+                
+                // Get iteration paths for active team iterations
+                $activeTeamIterationPaths = \App\Models\ADOTeamIteration::whereIn('id', $activeTeamIterations)
+                    ->pluck('iteration_path')
+                    ->filter() // Remove null values
+                    ->toArray();
+                
+                $allActiveIterationPaths = array_merge($allActiveIterationPaths, $activeTeamIterationPaths);
+                Log::info("🎯 Added iteration paths from active team iterations", ['paths' => $activeTeamIterationPaths]);
+            }
+            
+            // Apply combined iteration path filter if we have any active paths
+            if (!empty($allActiveIterationPaths)) {
+                $uniqueIterationPaths = array_unique($allActiveIterationPaths);
+                $escapedPaths = array_map(function($path) {
+                    return "'" . str_replace("'", "''", $path) . "'";
+                }, $uniqueIterationPaths);
+                
+                $iterationPathsString = implode(", ", $escapedPaths);
+                $queryParts[] = "AND [System.IterationPath] IN ({$iterationPathsString})";
+                Log::info("🎯 Applied combined iteration paths filter", ['total_paths' => count($uniqueIterationPaths), 'paths' => $uniqueIterationPaths]);
+            }
             
             // Add incremental sync filter if lastSyncTime is provided
             if ($lastSyncTime) {
@@ -396,14 +499,27 @@ class AzureDevOpsService
         $wiqlResponse = $response->json();
         $workItemIds = collect($wiqlResponse['workItems'] ?? [])->pluck('id')->toArray();
 
-        Log::info("Found " . count($workItemIds) . " work items for project: {$projectName}");
+        $workItemCount = count($workItemIds);
+        $filteringApplied = !empty($activeIterations) || !empty($activeTeamIterations);
+        
+        if ($filteringApplied) {
+            Log::info("🎯 Found {$workItemCount} filtered work items for project: {$projectName} (WIQL pre-filtering applied)");
+        } else {
+            Log::info("Found {$workItemCount} work items for project: {$projectName} (no filtering applied)");
+        }
+        
+        if ($workItemCount > 1000) {
+            $warningMsg = "⚠️ Large sync detected: {$workItemCount} work items. This may take several minutes.";
+            Log::warning($warningMsg);
+            echo $warningMsg . "\n";
+        }
 
         if (empty($workItemIds)) {
             return [];
         }
 
         // Get detailed work item information using batch approach (like Python script)
-        return $this->getWorkItemsBatch($workItemIds, $projectName, $project, $firstBatchOnly);
+        return $this->getWorkItemsBatch($workItemIds, $projectName, $project, $firstBatchOnly, $activeTeams, $activeIterations, $activeTeamIterations);
     }
 
     /**
@@ -434,9 +550,127 @@ class AzureDevOpsService
     }
 
     /**
+     * Get work items by iteration from database
+     */
+    public function getWorkItemsByIteration(string $projectId, string $iterationId, array $filters = []): array
+    {
+        $cacheKey = "ado_work_items_iteration_{$projectId}_{$iterationId}_" . md5(serialize($filters));
+        
+        return Cache::remember($cacheKey, 1800, function () use ($projectId, $iterationId, $filters) {
+            // Debug logging
+            Log::info("🔍 getWorkItemsByIteration called with projectId: {$projectId}, iterationId: {$iterationId}");
+            
+            // Find the team iteration by iteration_identifier
+            $teamIteration = \App\Models\ADOTeamIteration::where('iteration_identifier', $iterationId)
+                ->where('project_id', $projectId)
+                ->first();
+            
+            Log::info("🔍 Team iteration lookup result: " . ($teamIteration ? "Found with ID: {$teamIteration->id}" : "Not found"));
+            
+            if (!$teamIteration) {
+                Log::warning("⚠️ No team iteration found for identifier: {$iterationId}");
+                return [];
+            }
+            
+            // Check if project exists
+            $project = \App\Models\ADOProject::find($projectId);
+            Log::info("🔍 Project lookup result: " . ($project ? "Found: {$project->name}" : "Not found"));
+            
+            // Check total work items for this project
+            $totalWorkItemsInProject = \App\Models\ADOWorkItem::where('project_id', $projectId)->count();
+            Log::info("🔍 Total work items in project: {$totalWorkItemsInProject}");
+            
+            // Check work items with this team iteration
+            $workItemsWithTeamIteration = \App\Models\ADOWorkItem::where('project_id', $projectId)
+                ->where('team_iteration_id', $teamIteration->id)
+                ->count();
+            Log::info("🔍 Work items with team_iteration_id {$teamIteration->id}: {$workItemsWithTeamIteration}");
+            
+            // If no work items found by team_iteration_id, try searching by iteration_path
+            if ($workItemsWithTeamIteration == 0) {
+                Log::info("🔍 No work items found by team_iteration_id, trying iteration_path search");
+                
+                $iterationPath = $teamIteration->iteration_path;
+                Log::info("🔍 Searching by iteration_path: {$iterationPath}");
+                
+                $workItemsByPath = \App\Models\ADOWorkItem::where('project_id', $projectId)
+                    ->where('iteration_path', $iterationPath)
+                    ->count();
+                Log::info("🔍 Work items with iteration_path {$iterationPath}: {$workItemsByPath}");
+                
+                if ($workItemsByPath > 0) {
+                    $query = \App\Models\ADOWorkItem::byProject($projectId)
+                        ->where('iteration_path', $iterationPath);
+                } else {
+                    // Fallback to team_iteration_id even if count is 0
+                    $query = \App\Models\ADOWorkItem::byProject($projectId)
+                        ->byTeamIteration($teamIteration->id);
+                }
+            } else {
+                $query = \App\Models\ADOWorkItem::byProject($projectId)
+                    ->byTeamIteration($teamIteration->id);
+            }
+            
+            // Apply filters if provided
+            if (!empty($filters['state_filter'])) {
+                $query->byState($filters['state_filter']);
+            }
+            
+            if (!empty($filters['assignee_filter'])) {
+                $query->assignedTo($filters['assignee_filter']);
+            }
+            
+            if (!empty($filters['work_item_type_filter'])) {
+                $query->byType($filters['work_item_type_filter']);
+            }
+            
+            $workItems = $query->get();
+            Log::info("🔍 Final query returned " . $workItems->count() . " work items");
+            
+            $mappedWorkItems = $workItems->map(function ($workItem) {
+                return [
+                    'id' => $workItem->id,
+                    'url' => $workItem->url,
+                    'title' => $workItem->title,
+                    'workItemType' => $workItem->work_item_type,
+                    'state' => $workItem->state,
+                    'priority' => $workItem->priority,
+                    'storyPoints' => $workItem->story_points,
+                    'effort' => $workItem->effort,
+                    'remainingWork' => $workItem->remaining_work,
+                    'completedWork' => $workItem->completed_work,
+                    'originalEstimate' => $workItem->original_estimate,
+                    'assignedTo' => $workItem->assigned_to_display_name,
+                    'assignedToDescriptor' => $workItem->assigned_to,
+                    'modifiedBy' => $workItem->modified_by_display_name,
+                    'createdDate' => $workItem->created_date?->toISOString(),
+                    'changedDate' => $workItem->changed_date?->toISOString(),
+                    'areaPath' => $workItem->area_path,
+                    'iterationPath' => $workItem->iteration_path,
+                    'tags' => $workItem->tags,
+                    'ruddrTaskName' => $workItem->ruddr_task_name,
+                    'ruddrProjectId' => $workItem->ruddr_project_id,
+                    'taskStartDt' => $workItem->task_start_dt?->toISOString(),
+                    'taskEndDt' => $workItem->task_end_dt?->toISOString(),
+                    'delayedCompletion' => $workItem->delayed_completion?->toISOString(),
+                    'delayedReason' => $workItem->delayed_reason,
+                    'movedFromSprint' => $workItem->moved_from_sprint,
+                    'spilloverReason' => $workItem->spillover_reason,
+                    'effortSavedUsingAI' => $workItem->effort_saved_using_ai,
+                    'parentId' => $workItem->parent_id
+                ];
+            })->toArray();
+            
+            Log::info("🔍 Returning " . count($mappedWorkItems) . " mapped work items");
+            
+            return $mappedWorkItems;
+        });
+    }
+
+    /**
      * Get work items in batch using the correct Azure DevOps API
      */
-    public function getWorkItemsBatch(array $workItemIds, string $projectName = null, $project = null, bool $firstBatchOnly = false): array
+    public function getWorkItemsBatch(array $workItemIds, string $projectName = null, $project = null, bool $firstBatchOnly = false, array $activeTeams = [], array $activeIterations = [], array $activeTeamIterations = []): array
     {
         if (empty($workItemIds)) {
             return [];
@@ -447,6 +681,7 @@ class AzureDevOpsService
         $allWorkItems = [];
         $totalInserted = 0;
         $totalUpdated = 0;
+        $startTime = microtime(true);
         
         for ($i = 0; $i < count($workItemIds); $i += $batchSize) {
             $batchIds = array_slice($workItemIds, $i, $batchSize);
@@ -460,7 +695,9 @@ class AzureDevOpsService
                 '$expand' => 'all'
             ];
             
-            Log::info("🔄 Fetching API batch {$batchNumber}/{$totalBatches} of " . count($batchIds) . " work items for project: {$projectName}");
+            $batchMsg = "🔄 Fetching API batch {$batchNumber}/{$totalBatches} of " . count($batchIds) . " work items for project: {$projectName}";
+            Log::info($batchMsg);
+            echo $batchMsg . "\n";
             Log::info("URL: " . $this->baseUrl . $endpoint);
             
             $response = $this->makePostRequest($endpoint, $body);
@@ -471,7 +708,9 @@ class AzureDevOpsService
             
 
             
-            Log::info("✅ Retrieved " . count($batchWorkItems) . " work items from API batch {$batchNumber}");
+            $retrievedMsg = "✅ Retrieved " . count($batchWorkItems) . " work items from API batch {$batchNumber}";
+            Log::info($retrievedMsg);
+            echo $retrievedMsg . "\n";
             
             // Process this batch immediately into database
             if (!empty($batchWorkItems) && $project) {
@@ -480,75 +719,102 @@ class AzureDevOpsService
                 $batchErrors = 0;
                 
                 // Process each work item individually with better error handling (like Python script)
-                    foreach ($batchWorkItems as $workItemData) {
-                        try {
-                            $fields = $workItemData['fields'] ?? [];
+                foreach ($batchWorkItems as $workItemData) {
+                    try {
+                        $fields = $workItemData['fields'] ?? [];
+                        
+                        // Validate required fields exist
+                        if (!isset($workItemData['id'])) {
+                            Log::warning("Work item missing ID, skipping");
+                            $batchErrors++;
+                            continue;
+                        }
+                    
+                        // Find team iteration based on iteration path
+                        $teamIterationId = null;
+                        $iterationPath = $fields['System.IterationPath'] ?? null;
+                        if ($iterationPath) {
+                            // Find team iteration by matching iteration path
+                            $teamIteration = \App\Models\ADOTeamIteration::where('project_id', $project->id)
+                                ->where('iteration_path', $iterationPath)
+                                ->first();
                             
-                            // Validate required fields exist
-                            if (!isset($workItemData['id'])) {
-                                Log::warning("Work item missing ID, skipping");
-                                $batchErrors++;
+                            if ($teamIteration) {
+                                $teamIterationId = $teamIteration->id;
+                                Log::info("🔗 Found team iteration ID {$teamIterationId} for path: {$iterationPath}");
+                            } else {
+                                Log::warning("⚠️ No team iteration found for path: {$iterationPath} in project: {$project->name}");
+                            }
+                        }
+                        
+                        // Minimal post-API filtering since most filtering is done at WIQL level
+                        // We only need to double-check team iteration membership for precision
+                        if (!empty($activeTeamIterations) && $teamIterationId) {
+                            if (!in_array($teamIterationId, $activeTeamIterations)) {
+                                Log::info("🚫 Skipping work item {$workItemData['id']} - team iteration {$teamIterationId} not in active list (post-API check)");
                                 continue;
                             }
-                            
-                        // Prepare work item data with actual Azure DevOps timestamps
-                        $workItemUpdateData = [
-                                 'url' => $workItemData['url'],
-                                 'project_id' => $project->id,
-                             'team_id' => null, // Don't map System.AreaId to team_id - it's an area ID, not team ID
-                             'iteration_id' => $this->validateIterationId($fields['System.IterationId'] ?? null),
-                                 'iteration_path' => $fields['System.IterationPath'] ?? null,
-                                 'work_item_type' => $fields['System.WorkItemType'] ?? null,
-                                 'title' => $fields['System.Title'] ?? null,
-                                 'state' => $fields['System.State'] ?? null,
-                                 'priority' => $fields['Microsoft.VSTS.Common.Priority'] ?? null,
-                                 'story_points' => $fields['Microsoft.VSTS.Scheduling.StoryPoints'] ?? null,
-                                 'effort' => $fields['Microsoft.VSTS.Scheduling.Effort'] ?? null,
-                                 'remaining_work' => $fields['Microsoft.VSTS.Scheduling.RemainingWork'] ?? null,
-                                 'completed_work' => $fields['Microsoft.VSTS.Scheduling.CompletedWork'] ?? null,
-                                 'original_estimate' => $fields['Microsoft.VSTS.Scheduling.OriginalEstimate'] ?? null,
-                             'assigned_to' => $this->validateUserDescriptor($this->extractUserDescriptor($fields['System.AssignedTo'] ?? null)),
-                             'assigned_to_display_name' => $this->extractUserDisplayName($fields['System.AssignedTo'] ?? null),
-                             'modified_by' => $this->validateUserDescriptor($this->extractUserDescriptor($fields['System.ChangedBy'] ?? null)),
-                             'modified_by_display_name' => $this->extractUserDisplayName($fields['System.ChangedBy'] ?? null),
-                                 'created_date' => $fields['System.CreatedDate'] ?? null,
-                                 'changed_date' => $fields['System.ChangedDate'] ?? null,
-                                 'area_path' => $fields['System.AreaPath'] ?? null,
-                                 'tags' => isset($fields['System.Tags']) && $fields['System.Tags'] ? explode(';', $fields['System.Tags']) : [],
-                             'ruddr_task_name' => $fields['Custom.RuddrTaskName'] ?? null,
-                             'ruddr_project_id' => $fields['Custom.RuddrProjectUID'] ?? null,
-                             'task_start_dt' => $fields['Custom.StartDt'] ?? null,
-                             'task_end_dt' => $fields['Custom.EndDt'] ?? null,
-                             'delayed_completion' => $fields['Custom.DelayedCompletion'] ?? null,
-                             'delayed_reason' => $fields['Custom.DelayedReason'] ?? null,
-                             'moved_from_sprint' => $fields['Custom.MovedFromSprint'] ?? null,
-                             'spillover_reason' => $fields['Custom.SpilloverReason'] ?? null,
-                             'effort_saved_using_ai' => $fields['Custom.EffortSavedUsingAI'] ?? null,
-                                 'parent_id' => $fields['System.Parent'] ?? null,
-                        ];
+                        }
                         
-                        // Add actual Azure DevOps timestamps (like Python script)
-                        if (isset($fields['System.CreatedDate'])) {
-                            $workItemUpdateData['created_at'] = $fields['System.CreatedDate'];
-                        }
-                        if (isset($fields['System.ChangedDate'])) {
-                            $workItemUpdateData['updated_at'] = $fields['System.ChangedDate'];
-                        }
+                    // Prepare work item data with actual Azure DevOps timestamps
+                    $workItemUpdateData = [
+                        'url' => $workItemData['url'],
+                        'project_id' => $project->id,
+                        'team_id' => null, // Don't map System.AreaId to team_id - it's an area ID, not team ID
+                        'iteration_id' => $this->validateIterationIdAsString($fields['System.IterationId'] ?? null),
+                        'team_iteration_id' => $teamIterationId,
+                        'iteration_path' => $iterationPath,
+                        'work_item_type' => $fields['System.WorkItemType'] ?? null,
+                        'title' => $fields['System.Title'] ?? null,
+                        'state' => $fields['System.State'] ?? null,
+                        'priority' => $fields['Microsoft.VSTS.Common.Priority'] ?? null,
+                        'story_points' => $fields['Microsoft.VSTS.Scheduling.StoryPoints'] ?? null,
+                        'effort' => $fields['Microsoft.VSTS.Scheduling.Effort'] ?? null,
+                        'remaining_work' => $fields['Microsoft.VSTS.Scheduling.RemainingWork'] ?? null,
+                        'completed_work' => $fields['Microsoft.VSTS.Scheduling.CompletedWork'] ?? null,
+                        'original_estimate' => $fields['Microsoft.VSTS.Scheduling.OriginalEstimate'] ?? null,
+                        'assigned_to' => $this->validateUserDescriptor($this->extractUserDescriptor($fields['System.AssignedTo'] ?? null)),
+                        'assigned_to_display_name' => $this->extractUserDisplayName($fields['System.AssignedTo'] ?? null),
+                        'modified_by' => $this->validateUserDescriptor($this->extractUserDescriptor($fields['System.ChangedBy'] ?? null)),
+                        'modified_by_display_name' => $this->extractUserDisplayName($fields['System.ChangedBy'] ?? null),
+                        'created_date' => $fields['System.CreatedDate'] ?? null,
+                        'changed_date' => $fields['System.ChangedDate'] ?? null,
+                        'area_path' => $fields['System.AreaPath'] ?? null,
+                        'tags' => isset($fields['System.Tags']) && $fields['System.Tags'] ? explode(';', $fields['System.Tags']) : [],
+                        'ruddr_task_name' => $fields['Custom.RuddrTaskName'] ?? null,
+                        'ruddr_project_id' => $fields['Custom.RuddrProjectUID'] ?? null,
+                        'task_start_dt' => $fields['Custom.StartDt'] ?? null,
+                        'task_end_dt' => $fields['Custom.EndDt'] ?? null,
+                        'delayed_completion' => $fields['Custom.DelayedCompletion'] ?? null,
+                        'delayed_reason' => $fields['Custom.DelayedReason'] ?? null,
+                        'moved_from_sprint' => $fields['Custom.MovedFromSprint'] ?? null,
+                        'spillover_reason' => $fields['Custom.SpilloverReason'] ?? null,
+                        'effort_saved_using_ai' => $fields['Custom.EffortSavedUsingAI'] ?? null,
+                        'parent_id' => $fields['System.Parent'] ?? null,
+                    ];
+                        
+                    // Add actual Azure DevOps timestamps (like Python script)
+                    if (isset($fields['System.CreatedDate'])) {
+                        $workItemUpdateData['created_at'] = $fields['System.CreatedDate'];
+                    }
+                    if (isset($fields['System.ChangedDate'])) {
+                        $workItemUpdateData['updated_at'] = $fields['System.ChangedDate'];
+                    }
 
-                        $workItem = \App\Models\ADOWorkItem::updateOrCreate(
-                         ['id' => $workItemData['id']],
-                         $workItemUpdateData
-                         );
+                                    $workItem = \App\Models\ADOWorkItem::updateOrCreate(
+                    ['id' => (string) $workItemData['id']],
+                    $workItemUpdateData
+                );
+                        
+                        if ($workItem->wasRecentlyCreated) {
+                            $batchInserted++;
+                            $totalInserted++;
+                        } else {
+                            $batchUpdated++;
+                            $totalUpdated++;
+                        }
                             
-                            if ($workItem->wasRecentlyCreated) {
-                                $batchInserted++;
-                                $totalInserted++;
-                            } else {
-                                $batchUpdated++;
-                                $totalUpdated++;
-                            }
-                            
-                        } catch (Exception $e) {
+                    } catch (Exception $e) {
                         $batchErrors++;
                         // Log only first few errors to avoid spam (like Python script)
                         if ($batchErrors <= 5) {
@@ -559,9 +825,21 @@ class AzureDevOpsService
                         // Continue processing other items (like Python script)
                         continue;
                     }
-                    }
-                    
-                    Log::info("💾 Database batch {$batchNumber} complete: Inserted {$batchInserted}, Updated {$batchUpdated}, Errors {$batchErrors}");
+                }
+                            $batchCompleteMsg = "💾 Database batch {$batchNumber} complete: Inserted {$batchInserted}, Updated {$batchUpdated}, Errors {$batchErrors}";
+            Log::info($batchCompleteMsg);
+            echo $batchCompleteMsg . "\n";
+            
+            // Show progress and estimated time remaining
+            $elapsedTime = microtime(true) - $startTime;
+            $avgTimePerBatch = $elapsedTime / $batchNumber;
+            $remainingBatches = $totalBatches - $batchNumber;
+            $estimatedTimeRemaining = $avgTimePerBatch * $remainingBatches;
+            
+            if ($remainingBatches > 0) {
+                $progressMsg = "⏱️ Progress: {$batchNumber}/{$totalBatches} batches ({$remainingBatches} remaining, ~" . round($estimatedTimeRemaining, 1) . "s)";
+                echo $progressMsg . "\n";
+            }
             }
             
             $allWorkItems = array_merge($allWorkItems, $batchWorkItems);
@@ -591,12 +869,16 @@ class AzureDevOpsService
             }
         }
         
-        Log::info("📊 Total database operations: Inserted {$totalInserted}, Updated {$totalUpdated}");
+        $summaryMsg = "📊 Total database operations: Inserted {$totalInserted}, Updated {$totalUpdated}";
+        Log::info($summaryMsg);
+        echo $summaryMsg . "\n";
         
         // Final memory cleanup
         $finalMemory = round(memory_get_usage(true) / 1024 / 1024, 2);
         $peakMemory = round(memory_get_peak_usage(true) / 1024 / 1024, 2);
-        Log::info("💾 Final memory usage: {$finalMemory}MB, Peak: {$peakMemory}MB");
+        $memoryMsg = "💾 Final memory usage: {$finalMemory}MB, Peak: {$peakMemory}MB";
+        Log::info($memoryMsg);
+        echo $memoryMsg . "\n";
         
         return $allWorkItems;
     }
@@ -731,6 +1013,21 @@ class AzureDevOpsService
     }
     
     /**
+     * Validate if iteration ID exists in database, return as string or null (for new string primary keys)
+     */
+    private function validateIterationIdAsString($iterationId): ?string
+    {
+        if (!$iterationId) {
+            return null;
+        }
+        
+        // Check if iteration exists in database
+        $exists = \App\Models\ADOIteration::where('id', $iterationId)->exists();
+        
+        return $exists ? (string)$iterationId : null;
+    }
+    
+    /**
      * Validate if user descriptor exists in database, return null if not (like Python script)
      */
     private function validateUserDescriptor($userDescriptor): ?string
@@ -739,10 +1036,80 @@ class AzureDevOpsService
             return null;
         }
         
-        // Check if user exists in database
-        $exists = \App\Models\ADOUser::where('descriptor', $userDescriptor)->exists();
+        // Check if user exists in database (now using id instead of descriptor)
+        $exists = \App\Models\ADOUser::where('id', $userDescriptor)->exists();
         
         return $exists ? $userDescriptor : null;
+    }
+
+    /**
+     * Get daily progress tracking data for a sprint
+     */
+    public function getDailyProgress(string $projectId, string $sprintId, string $startDate, string $endDate): array
+    {
+        $cacheKey = "ado_daily_progress_{$projectId}_{$sprintId}_{$startDate}_{$endDate}";
+        
+        return Cache::remember($cacheKey, 1800, function () use ($projectId, $sprintId, $startDate, $endDate) {
+            // First, try to find the iteration by identifier (from team iterations)
+            $teamIteration = \App\Models\ADOTeamIteration::where('iteration_identifier', $sprintId)
+                ->where('project_id', $projectId)
+                ->first();
+            
+            if ($teamIteration) {
+                // If found in team iterations, get the corresponding iteration ID
+                $iteration = \App\Models\ADOIteration::where('identifier', $sprintId)
+                    ->where('project_id', $projectId)
+                    ->first();
+                
+                if ($iteration) {
+                    $actualIterationId = $iteration->id;
+                } else {
+                    // If no iteration found, return empty array
+                    return [];
+                }
+            } else {
+                // If not found in team iterations, assume it's already an iteration ID
+                $actualIterationId = $sprintId;
+            }
+            
+            // Get work items for the sprint
+            $workItems = \App\Models\ADOWorkItem::byProject($projectId)
+                ->byIteration($actualIterationId)
+                ->whereNotNull('changed_date')
+                ->whereBetween('changed_date', [$startDate, $endDate])
+                ->orderBy('changed_date')
+                ->get();
+            
+            // Group by date and calculate daily metrics
+            $dailyProgress = [];
+            $currentDate = \Carbon\Carbon::parse($startDate);
+            $endDateCarbon = \Carbon\Carbon::parse($endDate);
+            
+            while ($currentDate->lte($endDateCarbon)) {
+                $dateKey = $currentDate->toDateString();
+                
+                // Get work items changed on this date
+                $dayWorkItems = $workItems->filter(function ($workItem) use ($dateKey) {
+                    return $workItem->changed_date->toDateString() === $dateKey;
+                });
+                
+                $dailyProgress[] = [
+                    'date' => $dateKey,
+                    'totalWorkItems' => $dayWorkItems->count(),
+                    'completedWorkItems' => $dayWorkItems->whereIn('state', ['Completed', 'Done', 'Closed', 'Resolved'])->count(),
+                    'inProgressWorkItems' => $dayWorkItems->whereIn('state', ['In Progress', 'Active', 'Committed'])->count(),
+                    'notStartedWorkItems' => $dayWorkItems->whereNotIn('state', ['Completed', 'Done', 'Closed', 'Resolved', 'In Progress', 'Active', 'Committed'])->count(),
+                    'totalStoryPoints' => $dayWorkItems->sum('story_points'),
+                    'totalEffort' => $dayWorkItems->sum('effort'),
+                    'totalCompletedWork' => $dayWorkItems->sum('completed_work'),
+                    'totalRemainingWork' => $dayWorkItems->sum('remaining_work')
+                ];
+                
+                $currentDate->addDay();
+            }
+            
+            return $dailyProgress;
+        });
     }
 
     /**

@@ -14,15 +14,13 @@ class ADOIteration extends Model
 
     protected $table = 'ado_iterations';
     
-    // Tell Laravel that the ID is not auto-incrementing (we use IDs from Azure DevOps)
+    // Tell Laravel that the ID is not auto-incrementing (we use Azure DevOps identifier as primary key)
     public $incrementing = false;
     
-    // Tell Laravel that the primary key is an integer
-    protected $keyType = 'int';
+    // Tell Laravel that the primary key is a string
+    protected $keyType = 'string';
 
     protected $fillable = [
-        'id',
-        'identifier',
         'name',
         'path',
         'url',
@@ -32,13 +30,14 @@ class ADOIteration extends Model
         'finish_date',
         'time_frame',
         'attributes',
-
+        'is_active',
     ];
 
     protected $casts = [
         'start_date' => 'date',
         'finish_date' => 'date',
         'attributes' => 'array',
+        'is_active' => 'boolean',
     ];
 
     /**
@@ -54,7 +53,7 @@ class ADOIteration extends Model
      */
     public function teamIterations(): HasMany
     {
-        return $this->hasMany(ADOTeamIteration::class, 'iteration_identifier', 'identifier');
+        return $this->hasMany(ADOTeamIteration::class, 'iteration_identifier', 'id');
     }
 
     /**
@@ -76,9 +75,17 @@ class ADOIteration extends Model
     /**
      * Scope to filter active iterations (current and future)
      */
-    public function scopeActive($query)
+    public function scopeActivePeriod($query)
     {
         return $query->where('finish_date', '>=', now()->toDateString());
+    }
+
+    /**
+     * Scope to filter active iterations (enabled status)
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
     }
 
     /**

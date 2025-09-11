@@ -25,11 +25,11 @@ class ADOTeam extends Model
         'project_id',
         'project_name',
         'identity_id',
-
+        'is_active',
     ];
 
     protected $casts = [
-        //
+        'is_active' => 'boolean',
     ];
 
     /**
@@ -62,5 +62,13 @@ class ADOTeam extends Model
     public function scopeByProject($query, $projectId)
     {
         return $query->where('project_id', $projectId);
+    }
+
+    /**
+     * Scope to filter active teams only
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
     }
 }

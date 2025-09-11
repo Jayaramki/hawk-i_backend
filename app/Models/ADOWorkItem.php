@@ -12,18 +12,18 @@ class ADOWorkItem extends Model
 
     protected $table = 'ado_work_items';
     
-    // Tell Laravel that the ID is not auto-incrementing (we use IDs from Azure DevOps)
+    // Tell Laravel that the ID is not auto-incrementing (we use Azure DevOps work item ID as primary key)
     public $incrementing = false;
     
-    // Tell Laravel that the primary key is an integer
-    protected $keyType = 'int';
+    // Tell Laravel that the primary key is a string
+    protected $keyType = 'string';
 
     protected $fillable = [
-        'id',
         'url',
         'project_id',
         'team_id',
         'iteration_id',
+        'team_iteration_id',
         'iteration_path',
         'work_item_type',
         'title',
@@ -52,7 +52,6 @@ class ADOWorkItem extends Model
         'spillover_reason',
         'effort_saved_using_ai',
         'parent_id',
-
     ];
 
     protected $casts = [
@@ -96,11 +95,19 @@ class ADOWorkItem extends Model
     }
 
     /**
+     * Get the team iteration this work item belongs to
+     */
+    public function teamIteration(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\ADOTeamIteration::class, 'team_iteration_id', 'id');
+    }
+
+    /**
      * Get the assigned user
      */
     public function assignedUser(): BelongsTo
     {
-        return $this->belongsTo(ADOUser::class, 'assigned_to', 'descriptor');
+        return $this->belongsTo(ADOUser::class, 'assigned_to', 'id');
     }
 
     /**
@@ -108,7 +115,7 @@ class ADOWorkItem extends Model
      */
     public function createdByUser(): BelongsTo
     {
-        return $this->belongsTo(ADOUser::class, 'created_by', 'descriptor');
+        return $this->belongsTo(ADOUser::class, 'created_by', 'id');
     }
 
     /**
@@ -116,7 +123,7 @@ class ADOWorkItem extends Model
      */
     public function modifiedByUser(): BelongsTo
     {
-        return $this->belongsTo(ADOUser::class, 'modified_by', 'descriptor');
+        return $this->belongsTo(ADOUser::class, 'modified_by', 'id');
     }
 
     /**
@@ -141,6 +148,14 @@ class ADOWorkItem extends Model
     public function scopeByIteration($query, $iterationId)
     {
         return $query->where('iteration_id', $iterationId);
+    }
+
+    /**
+     * Scope to filter by team iteration
+     */
+    public function scopeByTeamIteration($query, $teamIterationId)
+    {
+        return $query->where('team_iteration_id', $teamIterationId);
     }
 
     /**
