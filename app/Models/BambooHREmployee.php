@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class BambooHREmployee extends Model
 {
@@ -67,6 +68,14 @@ class BambooHREmployee extends Model
     public function timeOffRequests()
     {
         return $this->hasMany(BambooHRTimeOff::class, 'employee_id');
+    }
+
+    /**
+     * Get the attendance records for this employee
+     */
+    public function attendanceRecords(): HasMany
+    {
+        return $this->hasMany(EmployeeAttendance::class, 'ina_employee_id');
     }
 
     /**
