@@ -12,11 +12,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('ado_team_iterations', function (Blueprint $table) {
-            $table->id();
+            $table->string('id')->primary(); // Composite of team_id and iteration_id
             $table->string('team_id');
-            $table->unsignedBigInteger('iteration_id');
+            $table->string('iteration_id');
             $table->string('project_id');
-            $table->timestamp('last_sync_at')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->json('team_backlog_iteration')->nullable()->comment('Team backlog iteration details');
+            $table->json('team_settings')->nullable()->comment('Team settings associated with this iteration');
             $table->timestamps();
             
             $table->foreign('team_id')->references('id')->on('ado_teams')->onDelete('cascade');

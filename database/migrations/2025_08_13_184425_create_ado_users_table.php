@@ -12,8 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('ado_users', function (Blueprint $table) {
-            $table->id();
-            $table->string('descriptor')->unique();
+            $table->string('id')->primary(); // Use Azure DevOps descriptor as primary key
             $table->string('display_name');
             $table->string('mail_address')->nullable();
             $table->string('origin');
@@ -25,7 +24,6 @@ return new class extends Migration
             $table->string('domain')->nullable();
             $table->string('principal_name')->nullable();
             $table->boolean('is_active')->default(true);
-            $table->timestamp('last_sync_at')->nullable();
             $table->timestamps();
             
             $table->index(['subject_kind']);

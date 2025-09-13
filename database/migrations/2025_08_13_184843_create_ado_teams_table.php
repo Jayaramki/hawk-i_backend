@@ -20,7 +20,7 @@ return new class extends Migration
             $table->string('project_id');
             $table->string('project_name');
             $table->string('identity_id')->nullable();
-            $table->timestamp('last_sync_at')->nullable();
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
             
             $table->foreign('project_id')->references('id')->on('ado_projects')->onDelete('cascade');

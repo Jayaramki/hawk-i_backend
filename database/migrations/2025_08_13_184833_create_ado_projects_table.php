@@ -20,11 +20,12 @@ return new class extends Migration
             $table->integer('revision');
             $table->string('visibility');
             $table->string('default_team_id')->nullable();
-            $table->timestamp('last_sync_at')->nullable();
+            $table->boolean('is_active')->default(true)->comment('Flag to control whether this project should be processed for data retrieval');
             $table->timestamps();
             
             $table->index(['state']);
             $table->index(['visibility']);
+            $table->index(['is_active']);
         });
     }
 

@@ -12,8 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('ado_iterations', function (Blueprint $table) {
-            $table->id();
-            $table->string('identifier')->unique();
+            $table->string('id')->primary(); // Use identifier as primary key
             $table->string('name');
             $table->text('path');
             $table->text('url')->nullable();
@@ -23,12 +22,11 @@ return new class extends Migration
             $table->date('end_date')->nullable();
             $table->string('time_frame')->nullable();
             $table->json('attributes')->nullable();
-            $table->timestamp('last_sync_at')->nullable();
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
             
             $table->foreign('project_id')->references('id')->on('ado_projects')->onDelete('cascade');
             $table->index(['project_id']);
-            $table->index(['identifier']);
             $table->index(['start_date', 'end_date']);
         });
     }

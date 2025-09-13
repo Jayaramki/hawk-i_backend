@@ -16,8 +16,8 @@ return new class extends Migration
             $table->string('bamboohr_id')->unique();
             $table->unsignedBigInteger('employee_id')->nullable();
             $table->string('type');
-            $table->date('start_date');
-            $table->date('end_date');
+            $table->date('start_date')->nullable();
+            $table->date('end_date')->nullable();
             $table->decimal('days_requested', 5, 2)->default(0);
             $table->string('status')->default('pending');
             $table->timestamp('requested_date')->nullable();
