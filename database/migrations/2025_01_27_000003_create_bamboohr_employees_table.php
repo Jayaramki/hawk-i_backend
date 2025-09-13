@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('bamboohr_id')->unique();
             $table->string('first_name');
             $table->string('last_name');
+            $table->string('gender')->nullable();
             $table->string('email')->nullable();
             $table->string('job_title')->nullable();
             $table->unsignedBigInteger('department_id')->nullable();
@@ -23,9 +24,11 @@ return new class extends Migration
             $table->date('termination_date')->nullable();
             $table->string('status')->default('active');
             $table->string('work_email')->nullable();
+            $table->text('photo_url')->nullable();
             $table->string('mobile_phone')->nullable();
             $table->string('work_phone')->nullable();
-            $table->text('address')->nullable();
+            $table->text('address1')->nullable();
+            $table->text('address2')->nullable();
             $table->string('city')->nullable();
             $table->string('state')->nullable();
             $table->string('zip_code')->nullable();
