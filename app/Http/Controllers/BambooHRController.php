@@ -276,6 +276,25 @@ class BambooHRController extends Controller
                 });
             }
 
+            // Check if all employees should be returned (for client-side pagination)
+            if ($request->has('all') && $request->get('all') === 'true') {
+                $employees = $query->orderBy('last_name')->get();
+                
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'data' => $employees,
+                        'total' => $employees->count(),
+                        'per_page' => $employees->count(),
+                        'current_page' => 1,
+                        'last_page' => 1,
+                        'from' => 1,
+                        'to' => $employees->count()
+                    ]
+                ]);
+            }
+
+            // Default pagination for backward compatibility
             $employees = $query->orderBy('last_name')->paginate(20);
 
             return response()->json([

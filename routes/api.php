@@ -102,4 +102,23 @@ Route::prefix('v1')->group(function () {
         Route::get('/websocket-logs/{service}/{operation}', [App\Http\Controllers\BambooHRController::class, 'getWebSocketLogs']);
         Route::delete('/websocket-channels/{service}/{operation}', [App\Http\Controllers\BambooHRController::class, 'clearWebSocketChannels']);
     });
+
+    // Attendance Routes
+    Route::prefix('attendance')->group(function () {
+        Route::post('/import', [App\Http\Controllers\AttendanceController::class, 'importAttendance']);
+        Route::get('/', [App\Http\Controllers\AttendanceController::class, 'getAttendance']);
+        Route::get('/summary', [App\Http\Controllers\AttendanceController::class, 'getAttendanceSummary']);
+    });
+
+    // Inatech Employee Routes
+    Route::prefix('inatech-employees')->group(function () {
+        Route::get('/', [App\Http\Controllers\InatechEmployeeController::class, 'index']);
+        Route::post('/', [App\Http\Controllers\InatechEmployeeController::class, 'store']);
+        Route::get('/{id}', [App\Http\Controllers\InatechEmployeeController::class, 'show']);
+        Route::put('/{id}', [App\Http\Controllers\InatechEmployeeController::class, 'update']);
+        Route::delete('/{id}', [App\Http\Controllers\InatechEmployeeController::class, 'destroy']);
+        Route::get('/{id}/mapping-suggestions', [App\Http\Controllers\InatechEmployeeController::class, 'getMappingSuggestions']);
+        Route::post('/mapping', [App\Http\Controllers\InatechEmployeeController::class, 'createMapping']);
+        Route::delete('/mapping', [App\Http\Controllers\InatechEmployeeController::class, 'removeMapping']);
+    });
 });
