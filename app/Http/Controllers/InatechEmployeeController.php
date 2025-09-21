@@ -32,11 +32,15 @@ class InatechEmployeeController extends Controller
             $query->where('status', $request->status);
         }
 
-        $employees = $query->orderBy('employee_name')->paginate(15);
+        // Return all employees without pagination (client-side grid handles pagination)
+        $employees = $query->orderBy('employee_name')->get();
 
         return response()->json([
             'success' => true,
-            'data' => $employees
+            'data' => [
+                'data' => $employees, // Keep the same structure for frontend compatibility
+                'total' => $employees->count()
+            ]
         ]);
     }
 
