@@ -25,12 +25,18 @@ class EmployeeAttendance extends Model
         'out_time' => 'datetime:H:i:s',
     ];
 
+    protected $appends = [
+        'employee_name',
+        'department',
+        'working_hours'
+    ];
+
     /**
      * Get the employee that this attendance record belongs to
      */
     public function employee(): BelongsTo
     {
-        return $this->belongsTo(BambooHREmployee::class, 'ina_employee_id');
+        return $this->belongsTo(InatechEmployee::class, 'ina_employee_id');
     }
 
     /**
@@ -38,7 +44,7 @@ class EmployeeAttendance extends Model
      */
     public function getEmployeeNameAttribute(): string
     {
-        return $this->employee ? $this->employee->full_name : '';
+        return $this->employee ? $this->employee->employee_name : '';
     }
 
     /**
@@ -46,9 +52,9 @@ class EmployeeAttendance extends Model
      */
     public function getDepartmentAttribute(): string
     {
-        return $this->employee && $this->employee->department 
-            ? $this->employee->department->name 
-            : '';
+        // InatechEmployee doesn't have department information
+        // Return a default value or empty string
+        return 'N/A';
     }
 
     /**
@@ -56,7 +62,8 @@ class EmployeeAttendance extends Model
      */
     public function getDepartmentIdAttribute(): ?int
     {
-        return $this->employee ? $this->employee->department_id : null;
+        // InatechEmployee doesn't have department information
+        return null;
     }
 
     /**

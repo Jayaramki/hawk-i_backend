@@ -1,0 +1,247 @@
+{
+    "timestamp": "2025-09-23 04:34:23",
+    "subdomain": "valsoftaspire",
+    "results": [
+        {
+            "date_range": "?start=2025-09-23&end=2025-09-23",
+            "url": "https:\/\/valsoftaspire.bamboohr.com\/api\/gateway.php\/valsoftaspire\/v1\/time_off\/whos_out?start=2025-09-23&end=2025-09-23",
+            "http_code": 200,
+            "error": "",
+            "response_size": 3254,
+            "response": [
+                {
+                    "id": 81691,
+                    "type": "timeOff",
+                    "employeeId": 339,
+                    "name": "Maria Stazhkova",
+                    "start": "2024-12-30",
+                    "end": "2025-09-30"
+                },
+                {
+                    "id": 94355,
+                    "type": "timeOff",
+                    "employeeId": 3370,
+                    "name": "Rosemary Boyes",
+                    "start": "2025-04-14",
+                    "end": "2025-09-28"
+                },
+                {
+                    "id": 109181,
+                    "type": "timeOff",
+                    "employeeId": 6351,
+                    "name": "Raychel Strefford",
+                    "start": "2025-08-20",
+                    "end": "2025-09-30"
+                },
+                {
+                    "id": 105722,
+                    "type": "timeOff",
+                    "employeeId": 3556,
+                    "name": "Janice Aguilar",
+                    "start": "2025-08-30",
+                    "end": "2025-11-30"
+                },
+                {
+                    "id": 98311,
+                    "type": "timeOff",
+                    "employeeId": 6807,
+                    "name": "Molly Hall",
+                    "start": "2025-09-03",
+                    "end": "2026-09-02"
+                },
+                {
+                    "id": 110925,
+                    "type": "timeOff",
+                    "employeeId": 3370,
+                    "name": "Rosemary Boyes",
+                    "start": "2025-09-10",
+                    "end": "2025-09-23"
+                },
+                {
+                    "id": 111362,
+                    "type": "timeOff",
+                    "employeeId": 3832,
+                    "name": "David Morris",
+                    "start": "2025-09-11",
+                    "end": "2025-09-24"
+                },
+                {
+                    "id": 69843,
+                    "type": "timeOff",
+                    "employeeId": 6424,
+                    "name": "Rhys Urbonas",
+                    "start": "2025-09-15",
+                    "end": "2025-10-04"
+                },
+                {
+                    "id": 105843,
+                    "type": "timeOff",
+                    "employeeId": 2614,
+                    "name": "David Yorke",
+                    "start": "2025-09-15",
+                    "end": "2025-09-26"
+                },
+                {
+                    "id": 107400,
+                    "type": "timeOff",
+                    "employeeId": 3356,
+                    "name": "Adrian Seymour",
+                    "start": "2025-09-15",
+                    "end": "2025-09-26"
+                },
+                {
+                    "id": 84370,
+                    "type": "timeOff",
+                    "employeeId": 6379,
+                    "name": "Thomas Brogan",
+                    "start": "2025-09-19",
+                    "end": "2025-09-28"
+                },
+                {
+                    "id": 108853,
+                    "type": "timeOff",
+                    "employeeId": 6928,
+                    "name": "Stuart Aylott",
+                    "start": "2025-09-19",
+                    "end": "2025-09-26"
+                },
+                {
+                    "id": 78940,
+                    "type": "timeOff",
+                    "employeeId": 6179,
+                    "name": "Jacob Adamczyk",
+                    "start": "2025-09-22",
+                    "end": "2025-09-26"
+                },
+                {
+                    "id": 85972,
+                    "type": "timeOff",
+                    "employeeId": 3357,
+                    "name": "Jacqueline Ellwood",
+                    "start": "2025-09-22",
+                    "end": "2025-09-23"
+                },
+                {
+                    "id": 91710,
+                    "type": "timeOff",
+                    "employeeId": 6194,
+                    "name": "David Theobald",
+                    "start": "2025-09-22",
+                    "end": "2025-09-25"
+                },
+                {
+                    "id": 92649,
+                    "type": "timeOff",
+                    "employeeId": 6358,
+                    "name": "Susan Horan",
+                    "start": "2025-09-22",
+                    "end": "2025-09-29"
+                },
+                {
+                    "id": 105726,
+                    "type": "timeOff",
+                    "employeeId": 763,
+                    "name": "Michael East",
+                    "start": "2025-09-22",
+                    "end": "2025-09-23"
+                },
+                {
+                    "id": 107345,
+                    "type": "timeOff",
+                    "employeeId": 2033,
+                    "name": "Sarah Hudson",
+                    "start": "2025-09-22",
+                    "end": "2025-09-24"
+                },
+                {
+                    "id": 108013,
+                    "type": "timeOff",
+                    "employeeId": 6190,
+                    "name": "Jake West",
+                    "start": "2025-09-22",
+                    "end": "2025-09-23"
+                },
+                {
+                    "id": 109140,
+                    "type": "timeOff",
+                    "employeeId": 3868,
+                    "name": "Paul Heath",
+                    "start": "2025-09-22",
+                    "end": "2025-09-26"
+                },
+                {
+                    "id": 111376,
+                    "type": "timeOff",
+                    "employeeId": 4091,
+                    "name": "Victoria Pattinson",
+                    "start": "2025-09-22",
+                    "end": "2025-09-24"
+                },
+                {
+                    "id": 84659,
+                    "type": "timeOff",
+                    "employeeId": 6345,
+                    "name": "Jessica Howarth",
+                    "start": "2025-09-23",
+                    "end": "2025-09-30"
+                },
+                {
+                    "id": 97265,
+                    "type": "timeOff",
+                    "employeeId": 3550,
+                    "name": "Sheila McCluskey-Carroll",
+                    "start": "2025-09-23",
+                    "end": "2025-09-25"
+                },
+                {
+                    "id": 102458,
+                    "type": "timeOff",
+                    "employeeId": 6389,
+                    "name": "Olivia Atkinson",
+                    "start": "2025-09-23",
+                    "end": "2025-09-23"
+                },
+                {
+                    "id": 106831,
+                    "type": "timeOff",
+                    "employeeId": 6672,
+                    "name": "Paul Millington",
+                    "start": "2025-09-23",
+                    "end": "2025-09-23"
+                },
+                {
+                    "id": 107039,
+                    "type": "timeOff",
+                    "employeeId": 1924,
+                    "name": "Kevin Cross",
+                    "start": "2025-09-23",
+                    "end": "2025-09-23"
+                },
+                {
+                    "id": 110959,
+                    "type": "timeOff",
+                    "employeeId": 1940,
+                    "name": "Thomas Garside",
+                    "start": "2025-09-23",
+                    "end": "2025-09-23"
+                },
+                {
+                    "id": 111754,
+                    "type": "timeOff",
+                    "employeeId": 6171,
+                    "name": "David Donoghue",
+                    "start": "2025-09-23",
+                    "end": "2025-09-23"
+                },
+                {
+                    "id": 112611,
+                    "type": "timeOff",
+                    "employeeId": 271,
+                    "name": "Naomi Virgo",
+                    "start": "2025-09-23",
+                    "end": "2025-09-23"
+                }
+            ]
+        }
+    ]
+}

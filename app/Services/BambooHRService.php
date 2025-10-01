@@ -1188,6 +1188,117 @@ class BambooHRService
     }
 
     /**
+     * Fetch time-off requests for a specific date
+     */
+    public function fetchTimeOffRequests(string $date): array
+    {
+        try {
+            if (empty($this->apiKey)) {
+                return [
+                    'success' => false,
+                    'message' => 'BambooHR API key not configured',
+                    'error' => 'Missing API key configuration',
+                    'data' => []
+                ];
+            }
+
+            $subdomain = config('services.bamboohr.subdomain');
+            $url = "https://{$subdomain}.bamboohr.com/api/gateway.php/{$subdomain}/v1/time_off/requests?start={$date}&end={$date}";
+            
+            $response = Http::withHeaders($this->headers)
+                ->timeout(30)
+                ->get($url);
+
+            if (!$response->successful()) {
+                Log::error('BambooHR time-off requests fetch failed', [
+                    'date' => $date,
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
+
+                return [
+                    'success' => false,
+                    'message' => 'Failed to fetch time-off requests',
+                    'error' => "HTTP {$response->status()}: {$response->body()}",
+                    'data' => []
+                ];
+            }
+
+            $timeOffRequests = $response->json();
+            
+            if (!is_array($timeOffRequests)) {
+                return [
+                    'success' => false,
+                    'message' => 'Invalid response format from BambooHR API',
+                    'error' => 'Expected array, got: ' . gettype($timeOffRequests),
+                    'data' => []
+                ];
+            }
+
+            // Store the data in the database
+            $syncedCount = 0;
+            $errors = [];
+
+            foreach ($timeOffRequests as $requestData) {
+                try {
+                    BambooHRTimeOff::updateOrCreate(
+                        ['bamboohr_id' => $requestData['id']],
+                        [
+                            'employee_id' => $requestData['employeeId'] ?? null,
+                            'type' => $requestData['type'] ?? '',
+                            'start_date' => $requestData['startDate'] ?? null,
+                            'end_date' => $requestData['endDate'] ?? null,
+                            'days_requested' => $requestData['daysRequested'] ?? 0,
+                            'status' => $requestData['status'] ?? 'pending',
+                            'requested_date' => $requestData['requestedDate'] ?? null,
+                            'approved_date' => $requestData['approvedDate'] ?? null,
+                            'approved_by' => $requestData['approvedBy'] ?? null,
+                            'notes' => $requestData['notes'] ?? '',
+                            'last_sync_at' => now(),
+                            'sync_status' => 'success',
+                            'error_message' => null
+                        ]
+                    );
+
+                    $syncedCount++;
+
+                } catch (Exception $e) {
+                    $errors[] = "Time Off Request {$requestData['id']}: " . $e->getMessage();
+                    Log::error('Error processing time-off request', [
+                        'request_id' => $requestData['id'] ?? 'unknown',
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            // Record sync history
+            $this->recordSyncHistory('time_off', null, 'success', "Fetched {$syncedCount} time off requests for {$date}");
+
+            return [
+                'success' => true,
+                'message' => "Successfully fetched {$syncedCount} time-off requests for {$date}",
+                'data' => $timeOffRequests,
+                'synced_count' => $syncedCount,
+                'errors' => $errors
+            ];
+
+        } catch (Exception $e) {
+            Log::error('BambooHR time-off requests fetch exception', [
+                'date' => $date,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Exception occurred while fetching time-off requests',
+                'error' => $e->getMessage(),
+                'data' => []
+            ];
+        }
+    }
+
+    /**
      * Record sync history
      */
     private function recordSyncHistory(string $table, ?string $projectId, string $status, string $message): void

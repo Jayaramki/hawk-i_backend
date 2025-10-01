@@ -121,4 +121,13 @@ Route::prefix('v1')->group(function () {
         Route::post('/mapping', [App\Http\Controllers\InatechEmployeeController::class, 'createMapping']);
         Route::delete('/mapping', [App\Http\Controllers\InatechEmployeeController::class, 'removeMapping']);
     });
+
+    // Timeoff Routes
+    Route::prefix('timeoff')->group(function () {
+        Route::get('/', [App\Http\Controllers\TimeoffController::class, 'index']);
+        Route::get('/{id}', [App\Http\Controllers\TimeoffController::class, 'show']);
+        Route::post('/{id}/approve', [App\Http\Controllers\TimeoffController::class, 'approve']);
+        Route::post('/{id}/reject', [App\Http\Controllers\TimeoffController::class, 'reject']);
+        Route::get('/stats', [App\Http\Controllers\TimeoffController::class, 'stats']);
+    });
 });

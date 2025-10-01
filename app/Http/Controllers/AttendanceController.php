@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\EmployeeAttendance;
 use App\Models\BambooHREmployee;
+use App\Models\InatechEmployee;
+use App\Models\EmployeeMapping;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
@@ -69,12 +71,32 @@ class AttendanceController extends Controller
                         $dateValue = $row['Attendance Date'] ?? '';
                         $inTimeValue = $row['In Time'] ?? '';
                         $outTimeValue = $row['Out Time'] ?? '';
-                        $employeeName = trim($row['Employee Name'] ?? '');
-                        $department = trim($row['Department'] ?? '');
+                        // $employeeName = trim($row['Employee Name'] ?? '');
+                        // $department = trim($row['Department'] ?? '');
 
-                        // Validate employee exists
-                        $employee = BambooHREmployee::where('bamboohr_id', $employeeCode)->first();
-                        if (!$employee) {
+                        // Validate employee exists - first try as INA employee code
+                        $employee = null;
+                        $employeeId = null;
+                        
+                        // First, try to find as INA employee code
+                        $inaEmployee = InatechEmployee::where('ina_emp_id', $employeeCode)->first();
+                        if ($inaEmployee) {
+                            // Check if there's a mapping to BambooHR employee
+                            $mapping = EmployeeMapping::where('ina_emp_id', $inaEmployee->id)->first();
+                            if ($mapping && $mapping->bamboohr_id) {
+                                $employee = BambooHREmployee::find($mapping->bamboohr_id);
+                                $employeeId = $employee ? $employee->id : null;
+                            } else {
+                                // If no mapping exists, use the INA employee directly
+                                $employeeId = $inaEmployee->id;
+                            }
+                        } else {
+                            // Fallback: try as BambooHR employee ID
+                            $employee = BambooHREmployee::where('bamboohr_id', $employeeCode)->first();
+                            $employeeId = $employee ? $employee->id : null;
+                        }
+                        
+                        if (!$employeeId) {
                             $errors[] = "Row " . ($index + 1) . ": Employee with Code '{$employeeCode}' not found";
                             $errorCount++;
                             continue;
@@ -96,7 +118,7 @@ class AttendanceController extends Controller
                         EmployeeAttendance::updateOrCreate(
                             [
                                 'attendance_date' => $attendanceDate,
-                                'ina_employee_id' => $employee->id,
+                                'ina_employee_id' => $employeeId,
                             ],
                             [
                                 'in_time' => $inTime,
@@ -144,7 +166,7 @@ class AttendanceController extends Controller
     public function getAttendance(Request $request): JsonResponse
     {
         try {
-            $query = EmployeeAttendance::with(['employee.department']);
+            $query = EmployeeAttendance::with(['employee']);
 
             // Filter by employee ID
             if ($request->has('employee_id')) {
@@ -167,6 +189,7 @@ class AttendanceController extends Controller
             }
 
             $perPage = $request->get('per_page', 15);
+            \Log::info('Attendance pagination - per_page: ' . $perPage . ', requested: ' . $request->get('per_page', 'not provided'));
             $attendance = $query->orderBy('attendance_date', 'desc')
                               ->paginate($perPage);
 
