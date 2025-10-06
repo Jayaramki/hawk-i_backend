@@ -35,7 +35,7 @@ class TimeoffController extends Controller
                 ], 422);
             }
 
-            $query = BambooHRTimeOff::with(['employee', 'approver']);
+            $query = BambooHRTimeOff::with(['employee', 'approver', 'timeOffType']);
 
             // Apply filters
             if ($request->filled('employee_id')) {
@@ -61,19 +61,19 @@ class TimeoffController extends Controller
             $timeoffRequests = $query->orderBy('requested_date', 'desc')
                 ->paginate($perPage, ['*'], 'page', $page);
 
-            // Transform data to include employee name
+            // Transform data to include employee name and format dates
             $transformedData = $timeoffRequests->getCollection()->map(function ($request) {
                 return [
                     'id' => $request->id,
                     'employee_id' => $request->employee_id,
                     'employee_name' => $request->employee ? $request->employee->full_name : 'Unknown Employee',
-                    'type' => $request->type,
-                    'start_date' => $request->start_date,
-                    'end_date' => $request->end_date,
+                    'type' => $request->timeOffType ? $request->timeOffType->name : 'Unknown Type',
+                    'start_date' => $request->start_date ? $request->start_date->format('d-m-Y') : null,
+                    'end_date' => $request->end_date ? $request->end_date->format('d-m-Y') : null,
                     'days_requested' => $request->days_requested,
                     'status' => $request->status,
-                    'requested_date' => $request->requested_date,
-                    'approved_date' => $request->approved_date,
+                    'requested_date' => $request->requested_date ? $request->requested_date->format('d-m-Y') : null,
+                    'approved_date' => $request->approved_date ? $request->approved_date->format('d-m-Y') : null,
                     'approved_by' => $request->approver ? $request->approver->full_name : null,
                     'notes' => $request->notes
                 ];
@@ -103,7 +103,7 @@ class TimeoffController extends Controller
     public function show($id): JsonResponse
     {
         try {
-            $timeoffRequest = BambooHRTimeOff::with(['employee', 'approver'])->find($id);
+            $timeoffRequest = BambooHRTimeOff::with(['employee', 'approver', 'timeOffType'])->find($id);
 
             if (!$timeoffRequest) {
                 return response()->json([
@@ -116,13 +116,13 @@ class TimeoffController extends Controller
                 'id' => $timeoffRequest->id,
                 'employee_id' => $timeoffRequest->employee_id,
                 'employee_name' => $timeoffRequest->employee ? $timeoffRequest->employee->full_name : 'Unknown Employee',
-                'type' => $timeoffRequest->type,
-                'start_date' => $timeoffRequest->start_date,
-                'end_date' => $timeoffRequest->end_date,
+                'type' => $timeoffRequest->timeOffType ? $timeoffRequest->timeOffType->name : 'Unknown Type',
+                'start_date' => $timeoffRequest->start_date ? $timeoffRequest->start_date->format('d-m-Y') : null,
+                'end_date' => $timeoffRequest->end_date ? $timeoffRequest->end_date->format('d-m-Y') : null,
                 'days_requested' => $timeoffRequest->days_requested,
                 'status' => $timeoffRequest->status,
-                'requested_date' => $timeoffRequest->requested_date,
-                'approved_date' => $timeoffRequest->approved_date,
+                'requested_date' => $timeoffRequest->requested_date ? $timeoffRequest->requested_date->format('d-m-Y') : null,
+                'approved_date' => $timeoffRequest->approved_date ? $timeoffRequest->approved_date->format('d-m-Y') : null,
                 'approved_by' => $timeoffRequest->approver ? $timeoffRequest->approver->full_name : null,
                 'notes' => $timeoffRequest->notes
             ];

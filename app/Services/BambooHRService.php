@@ -929,24 +929,49 @@ class BambooHRService
                 throw new Exception("Invalid response format from BambooHR API. Expected array, got: " . gettype($timeOffRequests));
             }
 
+            // Get mapped employee IDs to filter time-off requests
+            // The mapping table stores the primary key of bamboohr_employees table
+            // We need to get the actual bamboohr_id values from the mapped employees
+            $mappedEmployeeIds = \App\Models\EmployeeMapping::with('bambooHREmployee')
+                ->get()
+                ->pluck('bambooHREmployee.bamboohr_id')
+                ->filter()
+                ->values();
+            
+            // Filter time-off requests to only include mapped employees
+            // Since we only store Inatech employees in bamboohr_employees table,
+            // and we only map Inatech employees, this filter ensures only Inatech employees are processed
+            $filteredTimeOffRequests = array_filter($timeOffRequests, function($requestData) use ($mappedEmployeeIds) {
+                $employeeId = $requestData['employeeId'] ?? null;
+                return $employeeId && $mappedEmployeeIds->contains($employeeId);
+            });
+
+            Log::info('Time-off sync filtering', [
+                'total_requests' => count($timeOffRequests),
+                'filtered_requests' => count($filteredTimeOffRequests),
+                'mapped_employee_ids' => $mappedEmployeeIds->toArray()
+            ]);
+
             $syncedCount = 0;
             $errors = [];
 
-            foreach ($timeOffRequests as $requestData) {
+            foreach ($filteredTimeOffRequests as $requestData) {
                 try {
                     BambooHRTimeOff::updateOrCreate(
                         ['bamboohr_id' => $requestData['id']],
                         [
-                            'employee_id' => $requestData['employeeId'] ?? null,
-                            'type' => $requestData['type'] ?? '',
-                            'start_date' => $requestData['startDate'] ?? null,
-                            'end_date' => $requestData['endDate'] ?? null,
-                            'days_requested' => $requestData['daysRequested'] ?? 0,
-                            'status' => $requestData['status'] ?? 'pending',
-                            'requested_date' => $requestData['requestedDate'] ?? null,
-                            'approved_date' => $requestData['approvedDate'] ?? null,
-                            'approved_by' => $requestData['approvedBy'] ?? null,
-                            'notes' => $requestData['notes'] ?? '',
+                            'employee_id' => $this->getEmployeeId($requestData['employeeId'] ?? null),
+                            'time_off_type_id' => $this->getTimeOffTypeId($requestData['type'] ?? []),
+                            'start_date' => $requestData['start'] ?? null,
+                            'end_date' => $requestData['end'] ?? null,
+                            'days_requested' => $requestData['amount']['amount'] ?? 0,
+                            'status' => $requestData['status']['status'] ?? 'pending',
+                            'requested_date' => $requestData['created'] ?? null,
+                            'approved_date' => $requestData['status']['lastChanged'] ?? null,
+                            'approved_by' => ($requestData['status']['status'] ?? '') === 'approved' 
+                                ? $this->getApproverId($requestData['status']['lastChangedByUserId'] ?? null) 
+                                : null,
+                            'notes' => implode(', ', $requestData['notes'] ?? []),
                             'last_sync_at' => now(),
                             'sync_status' => 'success',
                             'error_message' => null
@@ -1202,6 +1227,24 @@ class BambooHRService
                 ];
             }
 
+            // Get mapped employee IDs to filter time-off requests
+            // The mapping table stores the primary key of bamboohr_employees table
+            // We need to get the actual bamboohr_id values from the mapped employees
+            $mappedEmployeeIds = \App\Models\EmployeeMapping::with('bambooHREmployee')
+                ->get()
+                ->pluck('bambooHREmployee.bamboohr_id')
+                ->filter()
+                ->values();
+            
+            if ($mappedEmployeeIds->isEmpty()) {
+                return [
+                    'success' => false,
+                    'message' => 'No mapped employees found',
+                    'error' => 'No employee mappings available',
+                    'data' => []
+                ];
+            }
+
             $subdomain = config('services.bamboohr.subdomain');
             $url = "https://{$subdomain}.bamboohr.com/api/gateway.php/{$subdomain}/v1/time_off/requests?start={$date}&end={$date}";
             
@@ -1235,25 +1278,41 @@ class BambooHRService
                 ];
             }
 
+            // Filter time-off requests to only include mapped employees
+            // Since we only store Inatech employees in bamboohr_employees table,
+            // and we only map Inatech employees, this filter ensures only Inatech employees are processed
+            $filteredTimeOffRequests = array_filter($timeOffRequests, function($requestData) use ($mappedEmployeeIds) {
+                $employeeId = $requestData['employeeId'] ?? null;
+                return $employeeId && $mappedEmployeeIds->contains($employeeId);
+            });
+
+            Log::info('Time-off requests filtering', [
+                'total_requests' => count($timeOffRequests),
+                'filtered_requests' => count($filteredTimeOffRequests),
+                'mapped_employee_ids' => $mappedEmployeeIds->toArray()
+            ]);
+
             // Store the data in the database
             $syncedCount = 0;
             $errors = [];
 
-            foreach ($timeOffRequests as $requestData) {
+            foreach ($filteredTimeOffRequests as $requestData) {
                 try {
                     BambooHRTimeOff::updateOrCreate(
                         ['bamboohr_id' => $requestData['id']],
                         [
-                            'employee_id' => $requestData['employeeId'] ?? null,
-                            'type' => $requestData['type'] ?? '',
-                            'start_date' => $requestData['startDate'] ?? null,
-                            'end_date' => $requestData['endDate'] ?? null,
-                            'days_requested' => $requestData['daysRequested'] ?? 0,
-                            'status' => $requestData['status'] ?? 'pending',
-                            'requested_date' => $requestData['requestedDate'] ?? null,
-                            'approved_date' => $requestData['approvedDate'] ?? null,
-                            'approved_by' => $requestData['approvedBy'] ?? null,
-                            'notes' => $requestData['notes'] ?? '',
+                            'employee_id' => $this->getEmployeeId($requestData['employeeId'] ?? null),
+                            'time_off_type_id' => $this->getTimeOffTypeId($requestData['type'] ?? []),
+                            'start_date' => $requestData['start'] ?? null,
+                            'end_date' => $requestData['end'] ?? null,
+                            'days_requested' => $requestData['amount']['amount'] ?? 0,
+                            'status' => $requestData['status']['status'] ?? 'pending',
+                            'requested_date' => $requestData['created'] ?? null,
+                            'approved_date' => $requestData['status']['lastChanged'] ?? null,
+                            'approved_by' => ($requestData['status']['status'] ?? '') === 'approved' 
+                                ? $this->getApproverId($requestData['status']['lastChangedByUserId'] ?? null) 
+                                : null,
+                            'notes' => implode(', ', $requestData['notes'] ?? []),
                             'last_sync_at' => now(),
                             'sync_status' => 'success',
                             'error_message' => null
@@ -1276,9 +1335,11 @@ class BambooHRService
 
             return [
                 'success' => true,
-                'message' => "Successfully fetched {$syncedCount} time-off requests for {$date}",
-                'data' => $timeOffRequests,
+                'message' => "Successfully fetched {$syncedCount} time-off requests for {$date} (filtered from " . count($timeOffRequests) . " total requests)",
+                'data' => $filteredTimeOffRequests,
                 'synced_count' => $syncedCount,
+                'total_requests' => count($timeOffRequests),
+                'filtered_requests' => count($filteredTimeOffRequests),
                 'errors' => $errors
             ];
 
@@ -1296,6 +1357,62 @@ class BambooHRService
                 'data' => []
             ];
         }
+    }
+
+    /**
+     * Get employee ID from BambooHR employee ID
+     */
+    private function getEmployeeId($bamboohrId)
+    {
+        if (!$bamboohrId) {
+            return null;
+        }
+        
+        $employee = \App\Models\BambooHREmployee::where('bamboohr_id', $bamboohrId)->first();
+        if ($employee) {
+            return $employee->id;
+        }
+        
+        // Log missing employee for debugging
+        \Log::warning("Employee with bamboohr_id {$bamboohrId} not found in database");
+        return null;
+    }
+
+    /**
+     * Get approver ID from BambooHR employee ID
+     * Only returns approver ID if the approver exists in our employee database
+     */
+    private function getApproverId($bamboohrId)
+    {
+        if (!$bamboohrId) {
+            return null;
+        }
+        
+        $approver = \App\Models\BambooHREmployee::where('bamboohr_id', $bamboohrId)->first();
+        if ($approver) {
+            return $approver->id;
+        }
+        
+        // Log missing approver for debugging (but don't treat as error)
+        \Log::info("Approver with bamboohr_id {$bamboohrId} not found in employee database - likely HR/Manager not in our system");
+        return null;
+    }
+
+    /**
+     * Get or create time-off type ID from BambooHR type data
+     */
+    private function getTimeOffTypeId($typeData)
+    {
+        if (empty($typeData) || !isset($typeData['name'])) {
+            return null;
+        }
+        
+        $name = $typeData['name'];
+        $bamboohrId = $typeData['id'] ?? null;
+        $icon = $typeData['icon'] ?? null;
+        
+        $timeOffType = \App\Models\TimeOffType::findOrCreateByName($name, $bamboohrId, $icon);
+        return $timeOffType->id;
     }
 
     /**

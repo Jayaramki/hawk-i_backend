@@ -15,7 +15,7 @@ class BambooHRTimeOff extends Model
     protected $fillable = [
         'bamboohr_id',
         'employee_id',
-        'type',
+        'time_off_type_id',
         'start_date',
         'end_date',
         'days_requested',
@@ -42,7 +42,7 @@ class BambooHRTimeOff extends Model
      */
     public function employee(): BelongsTo
     {
-        return $this->belongsTo(BambooHREmployee::class, 'employee_id');
+        return $this->belongsTo(BambooHREmployee::class, 'employee_id', 'id');
     }
 
     /**
@@ -50,7 +50,15 @@ class BambooHRTimeOff extends Model
      */
     public function approver()
     {
-        return $this->belongsTo(BambooHREmployee::class, 'approved_by');
+        return $this->belongsTo(BambooHREmployee::class, 'approved_by', 'id');
+    }
+
+    /**
+     * Get the time-off type for this request
+     */
+    public function timeOffType()
+    {
+        return $this->belongsTo(TimeOffType::class, 'time_off_type_id');
     }
 
     /**
