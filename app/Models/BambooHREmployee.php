@@ -20,6 +20,7 @@ class BambooHREmployee extends Model
         'gender',
         'email',
         'job_title',
+        'mapping_status',
         'department_id',
         'hire_date',
         'termination_date',

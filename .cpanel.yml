@@ -1,7 +1,7 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/username/public_html/hawk-i.tapntrack.in/api
+    - export DEPLOYPATH=/home/tapntrac/public_html/hawk-i.tapntrack.in/api
 
     - echo "Installing Laravel dependencies..."
     - composer install --no-dev --optimize-autoloader

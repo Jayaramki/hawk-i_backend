@@ -114,12 +114,23 @@ Route::prefix('v1')->group(function () {
     Route::prefix('inatech-employees')->group(function () {
         Route::get('/', [App\Http\Controllers\InatechEmployeeController::class, 'index']);
         Route::post('/', [App\Http\Controllers\InatechEmployeeController::class, 'store']);
+        
+        // Specific routes must come before parameterized routes
+        Route::get('/mappings', [App\Http\Controllers\InatechEmployeeController::class, 'getAllMappings']);
+        Route::post('/check-mapping', [App\Http\Controllers\InatechEmployeeController::class, 'checkMapping']);
+        Route::post('/mapping', [App\Http\Controllers\InatechEmployeeController::class, 'createMapping']);
+        Route::delete('/mapping', [App\Http\Controllers\InatechEmployeeController::class, 'removeMapping']);
+        
+        // Bulk mapping routes
+        Route::get('/bulk-mapping/data', [App\Http\Controllers\InatechEmployeeController::class, 'getBulkMappingData']);
+        Route::get('/bulk-mapping/suggestions', [App\Http\Controllers\InatechEmployeeController::class, 'getBulkMappingSuggestions']);
+        Route::post('/bulk-mapping/create', [App\Http\Controllers\InatechEmployeeController::class, 'createBulkMappings']);
+        
+        // Parameterized routes (must come after specific routes)
         Route::get('/{id}', [App\Http\Controllers\InatechEmployeeController::class, 'show']);
         Route::put('/{id}', [App\Http\Controllers\InatechEmployeeController::class, 'update']);
         Route::delete('/{id}', [App\Http\Controllers\InatechEmployeeController::class, 'destroy']);
         Route::get('/{id}/mapping-suggestions', [App\Http\Controllers\InatechEmployeeController::class, 'getMappingSuggestions']);
-        Route::post('/mapping', [App\Http\Controllers\InatechEmployeeController::class, 'createMapping']);
-        Route::delete('/mapping', [App\Http\Controllers\InatechEmployeeController::class, 'removeMapping']);
     });
 
     // Timeoff Routes

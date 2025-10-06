@@ -23,6 +23,14 @@ class EmployeeMapping extends Model
     ];
 
     /**
+     * Get the Inatech employee associated with this mapping
+     */
+    public function inaEmployee(): BelongsTo
+    {
+        return $this->belongsTo(InatechEmployee::class, 'ina_emp_id', 'id');
+    }
+
+    /**
      * Get the BambooHR employee associated with this mapping
      */
     public function bambooHREmployee(): BelongsTo

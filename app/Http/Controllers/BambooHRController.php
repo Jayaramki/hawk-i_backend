@@ -10,6 +10,7 @@ use App\Models\BambooHRDepartment;
 use App\Models\BambooHRJobTitle;
 use App\Models\BambooHRTimeOff;
 use App\Models\SyncHistory;
+use App\Models\EmployeeMapping;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -280,16 +281,40 @@ class BambooHRController extends Controller
             if ($request->has('all') && $request->get('all') === 'true') {
                 $employees = $query->orderBy('last_name')->get();
                 
+                // Add mapping information to each employee
+                $employeesWithMapping = $employees->map(function ($employee) {
+                    $mapping = EmployeeMapping::where('bamboohr_id', $employee->id)->first();
+                    
+                    return [
+                        'id' => $employee->id,
+                        'first_name' => $employee->first_name,
+                        'last_name' => $employee->last_name,
+                        'name' => $employee->name,
+                        'email' => $employee->email,
+                        'department_id' => $employee->department_id,
+                        'department' => $employee->department,
+                        'job_title' => $employee->job_title,
+                        'status' => $employee->status,
+                        'hire_date' => $employee->hire_date,
+                        'is_mapped' => $mapping ? true : false,
+                        'mapping_status' => $mapping ? 'Mapped' : 'Unmapped',
+                        'ina_emp_id' => $mapping ? $mapping->ina_emp_id : null,
+                        'mapping_id' => $mapping ? $mapping->id : null,
+                        'created_at' => $employee->created_at,
+                        'updated_at' => $employee->updated_at
+                    ];
+                });
+                
                 return response()->json([
                     'success' => true,
                     'data' => [
-                        'data' => $employees,
-                        'total' => $employees->count(),
-                        'per_page' => $employees->count(),
+                        'data' => $employeesWithMapping,
+                        'total' => $employeesWithMapping->count(),
+                        'per_page' => $employeesWithMapping->count(),
                         'current_page' => 1,
                         'last_page' => 1,
                         'from' => 1,
-                        'to' => $employees->count()
+                        'to' => $employeesWithMapping->count()
                     ]
                 ]);
             }
