@@ -6,6 +6,7 @@ use App\Models\EmployeeAttendance;
 use App\Models\BambooHREmployee;
 use App\Models\InatechEmployee;
 use App\Models\EmployeeMapping;
+use App\Models\BambooHRTimeOff;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
@@ -161,42 +162,108 @@ class AttendanceController extends Controller
     }
 
     /**
-     * Get attendance records with filtering
+     * Get attendance records with filtering and time-off integration
      */
     public function getAttendance(Request $request): JsonResponse
     {
         try {
-            $query = EmployeeAttendance::with(['employee']);
-
-            // Filter by employee ID
-            if ($request->has('employee_id')) {
-                $query->where('ina_employee_id', $request->employee_id);
-            }
-
-            // Filter by date range
-            if ($request->has('start_date')) {
-                $query->where('attendance_date', '>=', $request->start_date);
-            }
-            if ($request->has('end_date')) {
-                $query->where('attendance_date', '<=', $request->end_date);
-            }
-
-            // Filter by department
-            if ($request->has('department_id')) {
-                $query->whereHas('employee', function ($q) use ($request) {
-                    $q->where('department_id', $request->department_id);
-                });
-            }
-
+            $startDate = $request->get('start_date');
+            $endDate = $request->get('end_date');
+            $employeeId = $request->get('employee_id');
+            $viewType = $request->get('view_type', 'day'); // day, week, month
             $perPage = $request->get('per_page', 15);
-            \Log::info('Attendance pagination - per_page: ' . $perPage . ', requested: ' . $request->get('per_page', 'not provided'));
-            $attendance = $query->orderBy('attendance_date', 'desc')
-                              ->paginate($perPage);
+
+            // Get all Inatech employees
+            $employeesQuery = InatechEmployee::query();
+            
+            if ($employeeId) {
+                $employeesQuery->where('id', $employeeId);
+            }
+
+            $employees = $employeesQuery->get();
+            $attendanceData = [];
+
+            foreach ($employees as $employee) {
+                // Get attendance records for the employee
+                $attendanceQuery = EmployeeAttendance::where('ina_employee_id', $employee->id);
+                
+                if ($startDate && $endDate && $startDate === $endDate) {
+                    // For single day queries, use exact date match
+                    $attendanceQuery->where('attendance_date', $startDate);
+                } else {
+                    if ($startDate) {
+                        $attendanceQuery->where('attendance_date', '>=', $startDate);
+                    }
+                    if ($endDate) {
+                        $attendanceQuery->where('attendance_date', '<=', $endDate);
+                    }
+                }
+
+                $attendanceRecords = $attendanceQuery->get();
+                
+
+                // Get time-off records for the employee through mapping
+                $timeOffRecords = collect();
+                $mapping = EmployeeMapping::where('ina_emp_id', $employee->id)->first();
+                
+                if ($mapping && $mapping->bamboohr_id) {
+                    $timeOffQuery = BambooHRTimeOff::where('employee_id', $mapping->bamboohr_id)
+                        ->where('status', 'approved');
+                    
+                    if ($startDate) {
+                        $timeOffQuery->where(function($q) use ($startDate, $endDate) {
+                            $q->whereBetween('start_date', [$startDate, $endDate ?: $startDate])
+                              ->orWhereBetween('end_date', [$startDate, $endDate ?: $startDate])
+                              ->orWhere(function($subQ) use ($startDate, $endDate) {
+                                  $subQ->where('start_date', '<=', $startDate)
+                                       ->where('end_date', '>=', $endDate ?: $startDate);
+                              });
+                        });
+                    }
+                    
+                    $timeOffRecords = $timeOffQuery->with('timeOffType')->get();
+                }
+
+                // Process attendance data with time-off integration
+                $processedRecords = $this->processAttendanceWithTimeOff(
+                    $employee,
+                    $attendanceRecords,
+                    $timeOffRecords,
+                    $startDate,
+                    $endDate,
+                    $viewType
+                );
+
+                $attendanceData = array_merge($attendanceData, $processedRecords);
+            }
+
+            // For day view, return all data for client-side pagination
+            // For week/month views, we can still use server-side pagination if needed
+            if ($viewType === 'day') {
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'data' => $attendanceData,
+                        'total' => count($attendanceData)
+                    ]
+                ]);
+            } else {
+                // Apply pagination for week/month views
+                $totalRecords = count($attendanceData);
+                $offset = ($request->get('page', 1) - 1) * $perPage;
+                $paginatedData = array_slice($attendanceData, $offset, $perPage);
 
             return response()->json([
                 'success' => true,
-                'data' => $attendance
-            ]);
+                    'data' => [
+                        'data' => $paginatedData,
+                        'total' => $totalRecords,
+                        'per_page' => $perPage,
+                        'current_page' => $request->get('page', 1),
+                        'last_page' => ceil($totalRecords / $perPage)
+                    ]
+                ]);
+            }
 
         } catch (\Exception $e) {
             return response()->json([
@@ -204,6 +271,161 @@ class AttendanceController extends Controller
                 'message' => 'Failed to fetch attendance: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Process attendance records with time-off integration
+     */
+    private function processAttendanceWithTimeOff($employee, $attendanceRecords, $timeOffRecords, $startDate, $endDate, $viewType)
+    {
+        
+        $processedRecords = [];
+        $attendanceByDate = $attendanceRecords->keyBy(function($record) {
+            return Carbon::parse($record->attendance_date)->format('Y-m-d');
+        });
+        $timeOffByDate = $timeOffRecords->groupBy(function($item) {
+            $start = Carbon::parse($item->start_date);
+            $end = Carbon::parse($item->end_date);
+            $dates = [];
+            while ($start->lte($end)) {
+                $dates[] = $start->format('Y-m-d');
+                $start->addDay();
+            }
+            return $dates;
+        })->flatten()->keyBy('date');
+
+        // Generate date range based on view type
+        $dateRange = $this->generateDateRange($startDate, $endDate, $viewType);
+
+        foreach ($dateRange as $date) {
+            $attendanceRecord = $attendanceByDate->get($date);
+            $timeOffRecord = $timeOffByDate->get($date);
+
+
+            if ($attendanceRecord) {
+                // Has attendance record - check if both in_time and out_time are available
+                $hasInTime = !empty($attendanceRecord->in_time);
+                $hasOutTime = !empty($attendanceRecord->out_time);
+                
+                if ($hasInTime || $hasOutTime) {
+                    // Complete attendance - both check-in and check-out
+                    $processedRecords[] = [
+                        'id' => $attendanceRecord->id,
+                        'employee_id' => $employee->id,
+                        'employee_name' => $employee->employee_name,
+                        'attendance_date' => $date,
+                        'in_time' => $attendanceRecord->in_time,
+                        'out_time' => $attendanceRecord->out_time,
+                        'working_hours' => $attendanceRecord->working_hours,
+                        'status' => 'present',
+                        'status_label' => 'Present',
+                        'status_color' => 'success',
+                        'time_off_type' => null,
+                        'time_off_type_name' => null
+                    ];
+                } else {
+                    // No check-in AND no check-out - check for time-off
+                    if ($timeOffRecord) {
+                        // Has time-off record
+                        $processedRecords[] = [
+                            'id' => $attendanceRecord->id,
+                            'employee_id' => $employee->id,
+                            'employee_name' => $employee->employee_name,
+                            'attendance_date' => $date,
+                            'in_time' => $attendanceRecord->in_time,
+                            'out_time' => $attendanceRecord->out_time,
+                            'working_hours' => $attendanceRecord->working_hours,
+                            'status' => 'time_off',
+                            'status_label' => 'Time Off',
+                            'status_color' => 'warning',
+                            'time_off_type' => $timeOffRecord->time_off_type_id,
+                            'time_off_type_name' => $timeOffRecord->timeOffType ? $timeOffRecord->timeOffType->name : 'Time Off'
+                        ];
+                    } else {
+                        // No time-off record - no track
+                        $processedRecords[] = [
+                            'id' => $attendanceRecord->id,
+                            'employee_id' => $employee->id,
+                            'employee_name' => $employee->employee_name,
+                            'attendance_date' => $date,
+                            'in_time' => $attendanceRecord->in_time,
+                            'out_time' => $attendanceRecord->out_time,
+                            'working_hours' => $attendanceRecord->working_hours,
+                            'status' => 'no_track',
+                            'status_label' => 'No Track',
+                            'status_color' => 'danger',
+                            'time_off_type' => null,
+                            'time_off_type_name' => null
+                        ];
+                    }
+                }
+            } elseif ($timeOffRecord) {
+                // Has time-off record
+                $processedRecords[] = [
+                    'id' => null,
+                    'employee_id' => $employee->id,
+                    'employee_name' => $employee->employee_name,
+                    'attendance_date' => $date,
+                    'in_time' => null,
+                    'out_time' => null,
+                    'working_hours' => null,
+                    'status' => 'time_off',
+                    'status_label' => 'Time Off',
+                    'status_color' => 'warning',
+                    'time_off_type' => $timeOffRecord->time_off_type_id,
+                    'time_off_type_name' => $timeOffRecord->timeOffType ? $timeOffRecord->timeOffType->name : 'Time Off'
+                ];
+            } else {
+                // No tracking
+                $processedRecords[] = [
+                    'id' => null,
+                    'employee_id' => $employee->id,
+                    'employee_name' => $employee->employee_name,
+                    'attendance_date' => $date,
+                    'in_time' => null,
+                    'out_time' => null,
+                    'working_hours' => null,
+                    'status' => 'no_track',
+                    'status_label' => 'No Track',
+                    'status_color' => 'secondary',
+                    'time_off_type' => null,
+                    'time_off_type_name' => null
+                ];
+            }
+        }
+
+        return $processedRecords;
+    }
+
+    /**
+     * Generate date range based on view type
+     */
+    private function generateDateRange($startDate, $endDate, $viewType)
+    {
+        $start = $startDate ? Carbon::parse($startDate) : Carbon::now()->startOfDay();
+        $end = $endDate ? Carbon::parse($endDate) : Carbon::now()->endOfDay();
+
+        switch ($viewType) {
+            case 'week':
+                $start = $start->startOfWeek();
+                $end = $start->copy()->endOfWeek();
+                break;
+            case 'month':
+                $start = $start->startOfMonth();
+                $end = $start->copy()->endOfMonth();
+                break;
+            default:
+                // Default to day view - no changes needed
+                break;
+        }
+
+        $dates = [];
+        while ($start->lte($end)) {
+            $dates[] = $start->format('Y-m-d');
+            $start->addDay();
+        }
+
+        return $dates;
     }
 
     /**
