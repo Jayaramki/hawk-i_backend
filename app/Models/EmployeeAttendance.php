@@ -75,6 +75,7 @@ class EmployeeAttendance extends Model
             return null;
         }
 
+        // Use the datetime casting which now works with IST timezone
         $inTime = \Carbon\Carbon::parse($this->in_time);
         $outTime = \Carbon\Carbon::parse($this->out_time);
         

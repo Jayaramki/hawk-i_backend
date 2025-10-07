@@ -7,6 +7,7 @@ use App\Models\BambooHREmployee;
 use App\Models\InatechEmployee;
 use App\Models\EmployeeMapping;
 use App\Models\BambooHRTimeOff;
+use App\Services\AttendanceLogicService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
@@ -183,52 +184,11 @@ class AttendanceController extends Controller
             $employees = $employeesQuery->get();
             $attendanceData = [];
 
+            $attendanceLogicService = new AttendanceLogicService();
+
             foreach ($employees as $employee) {
-                // Get attendance records for the employee
-                $attendanceQuery = EmployeeAttendance::where('ina_employee_id', $employee->id);
-                
-                if ($startDate && $endDate && $startDate === $endDate) {
-                    // For single day queries, use exact date match
-                    $attendanceQuery->where('attendance_date', $startDate);
-                } else {
-                    if ($startDate) {
-                        $attendanceQuery->where('attendance_date', '>=', $startDate);
-                    }
-                    if ($endDate) {
-                        $attendanceQuery->where('attendance_date', '<=', $endDate);
-                    }
-                }
-
-                $attendanceRecords = $attendanceQuery->get();
-                
-
-                // Get time-off records for the employee through mapping
-                $timeOffRecords = collect();
-                $mapping = EmployeeMapping::where('ina_emp_id', $employee->id)->first();
-                
-                if ($mapping && $mapping->bamboohr_id) {
-                    $timeOffQuery = BambooHRTimeOff::where('employee_id', $mapping->bamboohr_id)
-                        ->where('status', 'approved');
-                    
-                    if ($startDate) {
-                        $timeOffQuery->where(function($q) use ($startDate, $endDate) {
-                            $q->whereBetween('start_date', [$startDate, $endDate ?: $startDate])
-                              ->orWhereBetween('end_date', [$startDate, $endDate ?: $startDate])
-                              ->orWhere(function($subQ) use ($startDate, $endDate) {
-                                  $subQ->where('start_date', '<=', $startDate)
-                                       ->where('end_date', '>=', $endDate ?: $startDate);
-                              });
-                        });
-                    }
-                    
-                    $timeOffRecords = $timeOffQuery->with('timeOffType')->get();
-                }
-
-                // Process attendance data with time-off integration
-                $processedRecords = $this->processAttendanceWithTimeOff(
-                    $employee,
-                    $attendanceRecords,
-                    $timeOffRecords,
+                $processedRecords = $attendanceLogicService->getAttendanceWithTimeOff(
+                    $employee->id,
                     $startDate,
                     $endDate,
                     $viewType
@@ -237,9 +197,8 @@ class AttendanceController extends Controller
                 $attendanceData = array_merge($attendanceData, $processedRecords);
             }
 
-            // For day view, return all data for client-side pagination
-            // For week/month views, we can still use server-side pagination if needed
-            if ($viewType === 'day') {
+            // For day, week, and month views, return all data for client-side processing
+            if ($viewType === 'day' || $viewType === 'week' || $viewType === 'month') {
                 return response()->json([
                     'success' => true,
                     'data' => [
@@ -248,13 +207,13 @@ class AttendanceController extends Controller
                     ]
                 ]);
             } else {
-                // Apply pagination for week/month views
+                // Apply pagination for other views if needed
                 $totalRecords = count($attendanceData);
                 $offset = ($request->get('page', 1) - 1) * $perPage;
                 $paginatedData = array_slice($attendanceData, $offset, $perPage);
 
-            return response()->json([
-                'success' => true,
+                return response()->json([
+                    'success' => true,
                     'data' => [
                         'data' => $paginatedData,
                         'total' => $totalRecords,
@@ -307,7 +266,7 @@ class AttendanceController extends Controller
                 $hasInTime = !empty($attendanceRecord->in_time);
                 $hasOutTime = !empty($attendanceRecord->out_time);
                 
-                if ($hasInTime || $hasOutTime) {
+                if ($hasInTime && $hasOutTime) {
                     // Complete attendance - both check-in and check-out
                     $processedRecords[] = [
                         'id' => $attendanceRecord->id,
