@@ -48,7 +48,7 @@ class AttendanceController extends Controller
             }
 
             // Validate required columns
-            $requiredColumns = ['Attendance Date', 'Employee Code', 'Employee Name', 'Department', 'In Time', 'Out Time'];
+            $requiredColumns = ['Attendance Date', 'Employee Code', 'Employee Name', 'In Time', 'Out Time'];
             $headers = array_keys($data[0]);
             $missingColumns = array_diff($requiredColumns, $headers);
             
@@ -63,6 +63,7 @@ class AttendanceController extends Controller
             $processedCount = 0;
             $errorCount = 0;
             $errors = [];
+            $newEmployees = []; // Track newly created employees
 
             DB::beginTransaction();
             
@@ -79,29 +80,29 @@ class AttendanceController extends Controller
                         // Validate employee exists - first try as INA employee code
                         $employee = null;
                         $employeeId = null;
+                        $employeeName = trim($row['Employee Name'] ?? '');
                         
                         // First, try to find as INA employee code
                         $inaEmployee = InatechEmployee::where('ina_emp_id', $employeeCode)->first();
                         if ($inaEmployee) {
-                            // Check if there's a mapping to BambooHR employee
-                            $mapping = EmployeeMapping::where('ina_emp_id', $inaEmployee->id)->first();
-                            if ($mapping && $mapping->bamboohr_id) {
-                                $employee = BambooHREmployee::find($mapping->bamboohr_id);
-                                $employeeId = $employee ? $employee->id : null;
-                            } else {
-                                // If no mapping exists, use the INA employee directly
-                                $employeeId = $inaEmployee->id;
-                            }
+                            // Always use Inatech employee ID for attendance records
+                            $employeeId = $inaEmployee->id;
                         } else {
-                            // Fallback: try as BambooHR employee ID
-                            $employee = BambooHREmployee::where('bamboohr_id', $employeeCode)->first();
-                            $employeeId = $employee ? $employee->id : null;
-                        }
-                        
-                        if (!$employeeId) {
-                            $errors[] = "Row " . ($index + 1) . ": Employee with Code '{$employeeCode}' not found";
-                            $errorCount++;
-                            continue;
+                            // Employee not found - create new employee
+                            $newEmployee = InatechEmployee::create([
+                                'ina_emp_id' => $employeeCode,
+                                'employee_name' => $employeeName ?: "Employee {$employeeCode}",
+                                'status' => 'active'
+                            ]);
+                            
+                            $employeeId = $newEmployee->id;
+                            
+                            // Track newly created employee
+                            $newEmployees[] = [
+                                'id' => $newEmployee->id,
+                                'ina_emp_id' => $employeeCode,
+                                'employee_name' => $newEmployee->employee_name
+                            ];
                         }
 
                         // Parse and validate date
@@ -115,6 +116,12 @@ class AttendanceController extends Controller
                         // Parse times
                         $inTime = $this->parseTime($inTimeValue);
                         $outTime = $this->parseTime($outTimeValue);
+
+                        // Skip if both In Time and Out Time are empty
+                        if (empty($inTime) && empty($outTime)) {
+                            // Skip this record - no attendance data to store
+                            continue;
+                        }
 
                         // Upsert attendance record
                         EmployeeAttendance::updateOrCreate(
@@ -145,7 +152,9 @@ class AttendanceController extends Controller
                         'processed_count' => $processedCount,
                         'error_count' => $errorCount,
                         'total_rows' => count($data),
-                        'errors' => $errors
+                        'errors' => $errors,
+                        'new_employees' => $newEmployees,
+                        'new_employees_count' => count($newEmployees)
                     ]
                 ]);
 
@@ -181,7 +190,7 @@ class AttendanceController extends Controller
                 $employeesQuery->where('id', $employeeId);
             }
 
-            $employees = $employeesQuery->get();
+            $employees = $employeesQuery->orderBy('employee_name')->get();
             $attendanceData = [];
 
             $attendanceLogicService = new AttendanceLogicService();

@@ -208,6 +208,7 @@ class InatechEmployeeController extends Controller
                       ->from('employee_mapping')
                       ->whereNotNull('bamboohr_id');
             })
+            ->orderBy('last_name')
             ->get();
 
         $suggestions = [];
@@ -371,6 +372,7 @@ class InatechEmployeeController extends Controller
                       ->from('employee_mapping')
                       ->whereNotNull('bamboohr_id');
             })
+            ->orderBy('last_name')
             ->get()
             ->map(function ($employee) {
                 return [
@@ -390,6 +392,7 @@ class InatechEmployeeController extends Controller
                       ->from('employee_mapping')
                       ->whereNotNull('ina_emp_id');
             })
+            ->orderBy('employee_name')
             ->get()
             ->map(function ($employee) {
                 return [
@@ -489,6 +492,7 @@ class InatechEmployeeController extends Controller
                       ->from('employee_mapping')
                       ->whereNotNull('bamboohr_id');
             })
+            ->orderBy('last_name')
             ->get();
 
         $unmappedInatech = InatechEmployee::where('status', 'active')
@@ -497,6 +501,7 @@ class InatechEmployeeController extends Controller
                       ->from('employee_mapping')
                       ->whereNotNull('ina_emp_id');
             })
+            ->orderBy('employee_name')
             ->get();
 
         $suggestions = [];
